@@ -1,0 +1,65 @@
+name: PressGarden independent validation
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  local:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Independent local syntax and benign-fixture tests
+        env:
+          PRESS_TEST_LOG_DIR: ${{ runner.temp }}/press-tests
+        run: bash tests/run.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: local-test-logs
+          path: ${{ runner.temp }}/press-tests/
+          retention-days: 7
+  php74:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: PHP 7.4 syntax and pure contract tests
+        run: |
+          docker run --rm --network=none -v "$PWD:/work:ro" -w /work php:7.4-cli bash -c 'set -eu; for f in lib/*.php; do php -l "$f" >/dev/null; done; for f in tests/*.php; do case "$f" in */db-mysql.php) continue;; esac; php "$f"; done'
+  wordpress:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: press-family-ephemeral-ci
+          MYSQL_ROOT_HOST: '%'
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -ppress-family-ephemeral-ci"
+          --health-interval=10s --health-timeout=5s --health-retries=10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install test-only WP-CLI
+        run: |
+          mkdir -p "$RUNNER_TEMP/wp-bin"
+          curl -fsSL --proto '=https' --proto-redir '=https' https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar -o "$RUNNER_TEMP/wp-bin/wp"
+          chmod +x "$RUNNER_TEMP/wp-bin/wp"
+          echo "$RUNNER_TEMP/wp-bin" >> "$GITHUB_PATH"
+      - name: Fresh isolated WordPress and MySQL integration
+        env:
+          PRESS_FAMILY_ALLOW_ISOLATED_WP_TEST: '1'
+          PRESS_TEST_DB_PASSWORD: press-family-ephemeral-ci
+        run: bash tests/live-wp.sh
