@@ -1,0 +1,33 @@
+name: Verified source release
+on:
+  workflow_run:
+    workflows: ["PressGarden independent validation"]
+    types: [completed]
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ github.repository }}
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: >-
+      github.repository == 'marketania/PressGarden' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Check out only the trusted main push candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+      - name: Verify all exact-commit main checks, package source and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/release.py
