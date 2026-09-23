@@ -1,22 +1,23 @@
 # Website names instead of hosting paths
 
+Examples for PressGarden's own responsibilities:
+
 ```bash
 ./pressgarden status example.com
-./pressgarden full example.com
-./pressgarden incident example.com
-./pressgarden lock example.com
-./pressgarden unlock example.com
-./pressgarden lock-status example.com
-./pressgarden inspect js example.com
-./pressgarden inspect runtime example.com --details
-./pressgarden baseline status example.com
-./pressgarden changes example.com
+./pressgarden db status example.com
+./pressgarden db check example.com
+./pressgarden cache status example.com
+./pressgarden cleanup preview example.com
+./pressgarden litespeed status example.com
+./pressgarden litespeed-db status example.com
 ./pressgarden sites
 ```
 
-Every existing site-targeting command uses the same resolver. No target, or `all`, uses the normal configured/portable fleet root. Program updates, intelligence updates, config advice and quarantine case IDs are not website-specific operations.
+A website argument resolves to a **local directory**, not a remote connection. No target, or explicit `all`, uses the configured/default fleet root. A parent target includes discovered nested installations; `example.com/shop` selects that nested directory. Existing discovery limits and exclusions remain in force. Explicit empty, unknown, excluded, ambiguous or invalid targets never fall back to the fleet.
 
-A name resolves to a **local directory**, not a remote scan. Existing recursion, discovery depth/pruning, exclusions and per-check scope remain. A parent directory includes discovered nested installations; `example.com/shop` targets that nested installation's directory. Named lock/unlock displays the count of selected installations before approval. The confirmation default remains no. Account-level checks within a suite remain account-level; a website argument does not turn host cron/SSH checks into site-only checks.
+Program updates and configuration advice are not website-targeted operations. Use `sites` to inspect the discovered names and directories before choosing a target.
+
+The examples above are inspections/previews. Native repair/optimization, cleanup execution and cache/LiteSpeed mutations must be invoked separately. Their preflights, confirmations, backup requirements and partial-result reporting still apply after target selection.
 
 ## Resolution and safety
 
@@ -24,7 +25,7 @@ Name lookup first runs fresh structural discovery beneath the configured/default
 
 For otherwise unnamed directories, bounded static token reading can recognize plain literal `WP_HOME` or `WP_SITEURL` definitions in that root's `wp-config.php`. It does not execute includes/expressions, load WordPress, invoke WP-CLI, query a database or contact DNS/the website. These names identify local installations; they do not verify the domain's ownership or effective runtime URL. Dynamic definitions, parent-directory configs, IDNs not supplied as punycode, and sites with URLs only in the database can require an explicit alias.
 
-Unknown names, duplicate names, exclusions, malformed alias files and failed discovery refuse selection with exit 2. There is no fuzzy match, first-match selection or fallback from an unknown website to the fleet. An existing relative folder named `example.com` is still treated as a website name; use `./example.com` to explicitly select it as a filesystem directory. Ordinary absolute/relative paths remain supported. The name resolver requires PHP CLI; path-only scanner workflows retain their previous dependency requirements.
+Unknown names, duplicate names, exclusions, malformed alias files and failed discovery refuse selection with exit 2. There is no fuzzy match, first-match selection or fallback from an unknown website to the fleet. An existing relative folder named `example.com` is still treated as a website name; use `./example.com` to explicitly select it as a filesystem directory. Ordinary absolute/relative paths remain supported. The name resolver requires PHP CLI. Individual operations have their own additional dependencies; resolving a name is not an operation preflight.
 
 `sites` prints names with local directories and marks ambiguous names. It never changes configuration or site contents. A narrowed name preserves discovered exclusions originally expressed relative to the fleet, so excluding `example.com/shop` is not lost when selecting `example.com`.
 
@@ -45,10 +46,10 @@ PRESSGARDEN_SITE_ALIASES_FILE="/home/account/PressGarden/config/sites"
 
 Values are data, not shell commands. The alias must point to an already discovered, non-excluded WordPress installation inside the configured scan root; it cannot broaden scope or bypass exclusions. Multiple aliases can point to one installation, but one alias resolving to multiple installations is refused. The file is limited to 256 KiB and must be a regular non-symlink file. Keep it private and outside served directories. Updating program code preserves private configuration and this untracked mapping file.
 
-## Compact PHP environment output
+## Maintenance and provider scope
 
-The optional provider comparison shows the most common reported PHP version, consistency/coverage counts, and up to four expanded differences per affected site (expanded detail is limited to the first 20 sites). Additional affected sites retain short review entries. Full option values, per-site groups, provider defaults/ranges and customizations are saved to the private findings/detail report, not discarded. Missing option fields are incomplete reporting, not an assertion that those values match.
+Use `--target SITE` with advanced LiteSpeed commands when positional arguments belong to the provider. For example, `./pressgarden litespeed option get cache --target example.com` treats `cache` as an option key, not as a website. Native database operations use `db status|check|repair|optimize|cleanup`; there is no combined security or full-maintenance suite.
 
-The common profile is a statistical reference, not a security policy. Shared customizations are informational. Numeric values and numeric strings compare consistently, empty values stay explicit, boolean spellings are normalized on recognized boolean directives, and only the OPCache megabyte directives normalize `128` with `128M`. Expected `/opt/alt/phpXX/` path differences that precisely track a changed PHP version are grouped with that version difference; additional paths still require review.
+`litespeed-db status` measures optimizer counters. `litespeed database status` checks command availability. These are different read-only checks; see [LiteSpeed database maintenance](LITESPEED-DATABASE.md). Native database blog/table selection and LiteSpeed network-wide scope are also distinct; review the [README](../README.md#database-operations) before writes.
 
-Use `inspect runtime example.com --details` or `PRESSGARDEN_PHP_DETAILS=1` for full console values. Runtime inspection includes the existing local CLI/override checks, optional php.net version lookup and optional Hostinger data; it does not refresh vulnerability feeds, bootstrap WordPress or perform remediation. Its per-site API data only covers returned fields, and CLI settings need not equal the site's web/FPM settings. Local/WAF checks and their verdicts are unchanged. Failed provider summary generation returns incomplete; failed detail writes retain the existing report-failure safeguards.
+PHP/security configuration belongs to PressHarden; malware and incident investigation belong to PressWarden. See the [migration mapping](MIGRATION.md). PressGarden does not need either sibling installed.
