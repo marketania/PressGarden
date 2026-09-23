@@ -1,0 +1,5 @@
+{
+  "required_workflows": [
+    ".github/workflows/ci.yml"
+  ]
+}
