@@ -1,69 +1,57 @@
 # LiteSpeed Database Maintenance
 
-PressGarden provides verified LiteSpeed Cache database maintenance for focused runs and for the write-capable `db` and `full` suites.
+PressGarden provides explicit LiteSpeed Cache database maintenance. It does not have security scan suites, a `full` command, or automatic LiteSpeed cleanup inside native database checks.
 
-## Commands
+## Choose the right interface
 
-Inspect the current LiteSpeed database-optimizer state without changing anything:
+| Purpose | Command | Meaning |
+|---|---|---|
+| Measure LiteSpeed optimizer counters | `pressgarden litespeed-db status example.com` | Read the plugin's dashboard counters and allocation estimate |
+| Clean and verify LiteSpeed counters | `pressgarden litespeed-db optimize example.com` | Back up, run cleanup groups, measure again, and report verified/unverified state |
+| Inspect available LiteSpeed commands | `pressgarden litespeed database status --target example.com` | Availability preflight, not dashboard measurement |
+| Invoke the upstream all-in-one action | `pressgarden litespeed database optimize-all --target example.com` | Back up and run `wp litespeed-database optimize_all`; command completion is not the focused workflow's all-counters-zero verification |
+| Check native WordPress tables | `pressgarden db check example.com` | Independent read-only native CHECK, not LiteSpeed cleanup |
 
-```bash
-pressgarden litespeed-db status [target]
-```
+A target can be a website name, intended nested installation, directory, or explicit `all`. An omitted target uses the configured fleet. Both LiteSpeed interfaces accept `--target SITE` / `--site SITE`; database actions also accept a positional website when it is unambiguous. Explicit empty or unresolved targets never select the fleet. See [site targeting](SITE-TARGETS.md).
 
-Run cleanup and verify the resulting state:
+Do not prefix a website itself with `--`. Use `example.com` or `--target example.com`, not `--example.com`.
 
-```bash
-pressgarden litespeed-db optimize [target]
-```
-
-`target` follows normal PressGarden targeting: a website name, nested website name, directory, `all`, or the configured fleet when omitted. The focused command also accepts `--target SITE` / `--site SITE`.
-
-For the umbrella LiteSpeed database interface, both of these are valid PressGarden forms:
+## Focused status and optimization
 
 ```bash
-pressgarden litespeed database optimize-all example.com
-pressgarden litespeed database optimize-all --target example.com
+# Read current counters; no cleanup commands are run.
+pressgarden litespeed-db status example.com
+
+# Explicit mutation: confirmation, private SQL backup, cleanup, verification.
+pressgarden litespeed-db optimize example.com
 ```
 
-Do not prefix a website itself with `--` (for example `--example.com`). PressGarden detects that common mistake and prints the corrected command instead of forwarding it to the lower-level parser.
+For fleet optimization, one confirmation authorizes the selected scope. The focused workflow preflights and processes each discovered installation before moving to the next; it does not wait for an expensive whole-fleet provider preflight. Missing/inactive LiteSpeed Cache is reported as unavailable/skipped, not installed or activated. WordPress/command failures remain errors.
 
-## Fleet execution
+Before cleanup of an eligible site, PressGarden requires a private SQL backup. Failure to export or validate that backup withholds cleanup for that site. LiteSpeed backups cover the configured database and can include other data when a database is shared. Protect the backup outside website roots and plan sufficient disk space. Checksum verification is not a restore test or a guarantee of cross-table consistency. See the [database operation safeguards](../README.md#database-operations).
 
-Fleet maintenance is streaming. After one fleet confirmation, PressGarden preflights, measures, maintains, and verifies each discovered installation immediately before moving to the next one. It does not wait for an expensive whole-fleet preflight before the first database is changed.
+## What verified means
 
-Active-site preflight also probes the LiteSpeed database command family once instead of requesting help for every cleanup subcommand. This substantially reduces redundant WordPress bootstraps on large shared-host fleets while preserving per-site errors and final verification.
+The focused workflow loads LiteSpeed Cache and reads `LiteSpeed\DB_Optm::db_count()`, the source used by `wp-admin/admin.php?page=litespeed-db_optm`, for:
 
-## What “verified” means
+- Post revisions, orphaned post meta, auto drafts, and trashed posts.
+- Spam comments, trashed comments, and trackbacks/pingbacks.
+- Expired transients, all transient rows, and tables to optimize.
 
-PressGarden does not consider a zero WP-CLI exit code sufficient proof that a site is optimized.
+These retain LiteSpeed's own retention settings and counter semantics, rather than a separate approximation of the dashboard.
 
-The state probe loads LiteSpeed Cache and reads `LiteSpeed\DB_Optm::db_count()` for the same categories used by `wp-admin/admin.php?page=litespeed-db_optm`:
+| Result | Meaning |
+|---|---|
+| ALREADY OPTIMIZED | Every measured dashboard counter was already zero; no cleanup command ran. |
+| VERIFIED | Cleanup commands completed and all measured dashboard counters are zero afterward. |
+| UNVERIFIED | Commands completed but counters remain nonzero, or resulting state could not be read. |
+| FAILED | A required precondition or execution step failed. |
 
-- Post Revisions
-- Orphaned Post Meta
-- Auto Drafts
-- Trashed Posts
-- Spam Comments
-- Trashed Comments
-- Trackbacks/Pingbacks
-- Expired Transients
-- All Transients
-- Optimize Tables
+Nonzero counters can reflect regenerated transients or concurrent activity rather than a failed deletion command. PressGarden reports the observed state; it does not claim full optimization in that case. Successful command completion alone is not verification.
 
-This preserves LiteSpeed's own revision-retention settings and counter semantics instead of approximating the dashboard with separate PressGarden SQL.
+## Commands used by the focused workflow
 
-For every eligible installation, PressGarden prints `BEFORE`, runs maintenance, prints `AFTER`, and classifies the result:
-
-- `ALREADY OPTIMIZED` — every LiteSpeed dashboard counter was already zero, so no cleanup command was run.
-- `VERIFIED` — cleanup commands completed and every LiteSpeed dashboard counter is zero afterward.
-- `UNVERIFIED` — commands completed, but one or more dashboard counters remain non-zero or the resulting state could not be read.
-- `FAILED` — one or more required LiteSpeed commands failed.
-
-Database size is shown before and after when available, but allocation size is telemetry only. MySQL can retain allocated space after rows are deleted, so size reduction is not used as the verification verdict.
-
-## Commands PressGarden executes
-
-For a single-site WordPress installation, PressGarden runs the documented command groups sequentially from the WordPress directory:
+For a single-site installation, the measured workflow uses these groups sequentially:
 
 ```bash
 wp litespeed-database clear_posts
@@ -73,79 +61,52 @@ wp litespeed-database clear_transients
 wp litespeed-database optimize_tables
 ```
 
-LiteSpeed's database command family does not accept ordinary WP-CLI global parameters. PressGarden therefore does not append `--path`, `--skip-plugins`, `--skip-themes`, `--skip-packages`, or `--no-color` to the real database-maintenance commands.
+The database family is invoked inside the selected WordPress directory without standard WP-CLI global flags such as `--path` or `--skip-plugins`. The separate measurement probe uses ordinary `wp eval-file` with LiteSpeed loaded. WordPress/plugin code can run during these calls; this is not a sandbox for an infected website.
 
-The state probe is different: it uses ordinary `wp eval-file` with LiteSpeed Cache loaded so it can read the plugin's own `DB_Optm` counters.
+After the first pass, the workflow re-reads the counters. It makes **one bounded residual pass** through groups with remaining work and measures again. It never loops until transients disappear. Remaining nonzero/unreadable state results in UNVERIFIED and an incomplete exit code.
 
-## Residual verification pass
+## Multisite scope
 
-After the first maintenance pass, PressGarden immediately re-reads the LiteSpeed counters. If any category remains non-zero, it performs one targeted residual pass for the command groups that still have work and reads the counters again.
+The focused `litespeed-db` workflow inventories and validates the network's blog IDs, measures them separately, aggregates counters, and runs the cleanup groups with `blog ID`. An incomplete inventory prevents cleanup. This is network scope within the selected WordPress installation, not a one-blog operation. The focused CLI does not accept a `--blog` selection.
 
-This matters for cases where one cleanup operation exposes another cleanup opportunity. For example, deleting auto drafts or trashed posts can leave metadata that becomes orphaned after the first orphan-meta cleanup has already run.
-
-PressGarden never loops indefinitely. After the residual pass, remaining non-zero counters produce `UNVERIFIED` rather than a false success.
-
-## Multisite
-
-Before changing a multisite installation, PressGarden obtains and validates all blog IDs. It measures every validated blog separately, aggregates the dashboard counters for the installation, and runs each maintenance command with the documented blog argument:
+The advanced interface can explicitly pass a blog operand:
 
 ```bash
-wp litespeed-database clear_posts blog ID
-wp litespeed-database clear_comments blog ID
-wp litespeed-database clear_trackbacks blog ID
-wp litespeed-database clear_transients blog ID
-wp litespeed-database optimize_tables blog ID
+pressgarden litespeed database optimize-all --blog=2 --target example.com
 ```
 
-Malformed or incomplete blog inventory prevents cleanup from starting. A partial command failure is reported as `FAILED`; completed actions are not hidden.
+Select an existing blog deliberately. This advanced command is not the focused network-wide measurement/residual workflow. Omitting the blog operand leaves upstream default-blog behavior; it must not be interpreted as verified network-wide cleanup.
 
-## DB and FULL suite integration
+Native `db` operations have separate table/blog selection rules. Refer to the [README](../README.md#database-operations) rather than assuming native and LiteSpeed scope are identical.
 
-`pressgarden db` and `pressgarden full` run verified LiteSpeed maintenance immediately before PressGarden's native SQL table maintenance:
-
-```text
-Database security scan
-→ Database malware scan
-→ LiteSpeed status BEFORE
-→ LiteSpeed cleanup
-→ LiteSpeed status AFTER / verification
-→ Native table check / conditional repair / optimize
-→ Native final verification
-```
-
-Sites without LiteSpeed Cache, or with the plugin inactive, are reported as unavailable/skipped and still continue to native database maintenance. A LiteSpeed failure makes the overall suite incomplete but does not prevent independent native maintenance from running on later steps.
-
-Disable only the automatic suite step with:
+## Native maintenance remains separate
 
 ```bash
+pressgarden db status example.com
+pressgarden db check example.com
+pressgarden db repair example.com
+pressgarden db optimize example.com
+pressgarden db cleanup example.com
 ```
 
-The explicit `litespeed-db status` and `litespeed-db optimize` commands remain available.
+These are independent requests, not a recommended sequence to run indiscriminately. CHECK does not silently repair, optimize, or call LiteSpeed. Repair follows supported storage-engine semantics. Native cleanup is a preview unless `--execute` is supplied. No command above runs a malware scan. Avoid duplicate native optimization after LiteSpeed unless the observed table state justifies it.
 
-## Fleet summary
+## Output and exit codes
 
-The final report separates:
+The focused summary separates checked/processed, optimized-and-verified, already optimized, unavailable, unverified, and failed installations. It reports measured before/after allocation pairs and **net counter decreases**, not guaranteed rows deleted by this process under concurrent writes.
 
-- optimized + verified installations;
-- already optimized installations;
-- LiteSpeed-unavailable installations;
-- unverified installations;
-- failed installations;
-- measured aggregate database allocation before and after;
-- actual counter reductions for revisions, orphaned metadata, drafts/trash, comments, trackbacks, transients, and tables requiring optimization.
+Expired-transient timers are a subset of transient rows; the figures overlap and must not be added. Allocation estimates are telemetry, not guaranteed filesystem space reclaimed and not the basis of the verification verdict. Missing measurements remain unavailable.
 
-`Expired Transients` is a subset of LiteSpeed's `All Transients` row count, so the two removal figures overlap and are not added together.
+`0` means the requested focused operation completed under its documented semantics, including a no-eligible-change result. `1` indicates declined confirmation. `2` indicates incomplete discovery, preconditions, execution, or verification. A fleet can have successful earlier sites and still return `2` for later failures.
 
-## Interruption safety
+## Interruption and scheduling
 
-If maintenance is interrupted while commands are running, actions that already completed remain applied. PressGarden does not replay an interrupted `litespeed-db` step through `pressgarden continue`; run a fresh `db`, `full`, or focused `litespeed-db optimize` pass so current database state is re-measured first.
+An interrupted mutation is not automatically rolled back: completed cleanup groups remain applied. Inspect output and retained backups before retrying. Start with a fresh focused status measurement, then deliberately request optimization again if warranted. PressGarden has no scan-continuation facility.
 
-## Scheduled maintenance
-
-A weekly maintenance cadence is a reasonable starting point for many managed sites. Example Sunday 3:00 AM focused cleanup:
+Example cron entry for a deliberately chosen Sunday 3:00 AM maintenance window:
 
 ```cron
 0 3 * * 0 PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin" PRESSGARDEN_INTERACTIVE=0 /path/to/pressgarden litespeed-db optimize all >> "$HOME/.local/state/pressgarden/litespeed-db-cron.log" 2>&1
 ```
 
-To schedule the complete database security and maintenance workflow instead, substitute `pressgarden db all`. Confirm WP-CLI and the intended PHP binary are available in the cron environment before enabling fleet execution.
+Before installing a cron entry, verify the executable and WP-CLI/database clients, the intended configuration/fleet root, private writable log directory, backup space, and recovery procedure. The log's parent directory must already exist or shell redirection prevents the command from starting. Omitted or `all` targets are fleet-wide. Intentional automation does not disable backups, target isolation, or verification. Use `pressgarden db check all` for a separate native read-only scheduled check; there is no combined database-security-and-maintenance action.

@@ -1,6 +1,6 @@
 # LiteSpeed Cache Management
 
-PressGarden exposes the complete LiteSpeed Cache for WordPress WP-CLI surface through one guarded interface:
+PressGarden exposes the eight migrated LiteSpeed Cache WP-CLI command families through one guarded interface. Availability depends on the installed plugin and is checked before execution:
 
 ```bash
 pressgarden litespeed <area> <action> [arguments] --target <site|all>
@@ -27,13 +27,12 @@ pressgarden litespeed option get cache-priv --target example.com
 pressgarden litespeed option all --format=json --target example.com
 pressgarden litespeed option set cache-priv false --target example.com
 pressgarden litespeed option export --target example.com
-pressgarden litespeed option export --filename=/tmp/lscache-options.txt --target example.com
 pressgarden litespeed option import /path/options.txt --target example.com
 pressgarden litespeed option import-remote https://example.com/options.txt --target example.com
 pressgarden litespeed option reset --target example.com
 ```
 
-PressGarden creates a private pre-change option export before option mutations. Fleet exports without `--filename` create separate private files per site. A single explicit `--filename` is refused for multi-site fleet execution to prevent overwriting exports.
+PressGarden creates a private pre-change option export before option mutations. Fleet exports without `--filename` create separate private files per site. A single explicit `--filename` is refused for multi-site fleet execution to prevent overwriting exports. An explicit filename must be a new file beneath the configured PressGarden state directory (shown by `pressgarden config`), with a private existing parent directory. Paths outside that state directory, including arbitrary `/tmp` files, are refused. Existing files and destinations inside website roots are also refused. Omitting `--filename` chooses a private per-site export path automatically.
 
 Output that appears to contain API keys, tokens, passwords, secrets, credentials, or private/SSL keys is redacted by default. To intentionally display a sensitive `option get` value, set `PRESSGARDEN_LITESPEED_SHOW_SENSITIVE=1` for that invocation.
 
@@ -95,20 +94,24 @@ Supported `ping` services are `img_optm`, `ccss`, `ucss`, `lqip`, and `vpi`.
 To link a QUIC.cloud account, keep the API key out of shell history:
 
 ```bash
-export QC_API_KEY='...'
+IFS= read -r -s -p 'QUIC.cloud API key: ' QC_API_KEY; printf '\n'
+export QC_API_KEY
 pressgarden litespeed online link --email=you@example.com --api-key-env=QC_API_KEY --target example.com
+unset QC_API_KEY
 ```
 
 To initialize QUIC.cloud CDN with Cloudflare Integration:
 
 ```bash
-export CF_API_TOKEN='...'
+IFS= read -r -s -p 'Cloudflare API token: ' CF_API_TOKEN; printf '\n'
+export CF_API_TOKEN
 pressgarden litespeed online cdn-init --method=cfi --cf-token-env=CF_API_TOKEN --target example.com
+unset CF_API_TOKEN
 ```
 
 Other CDN methods are `cname` and `ns`. `--ssl-cert=PATH` and `--ssl-key=PATH` are passed through when supplied.
 
-PressGarden deliberately rejects literal `--api-key=` and `--cf-token=` arguments so credentials are not casually stored in shell history. Command output is redacted for secret-like fields.
+PressGarden deliberately rejects literal `--api-key=` and `--cf-token=` arguments so credentials are not casually stored in shell history. Account/CDN mutation output is withheld. Credentials are read by an in-process WP-CLI bridge, not expanded into operating-system command arguments. Environment variables are still readable by loaded PHP code and sufficiently privileged processes; this is not isolation from an untrusted plugin. Do not enable shell tracing when entering or using secrets.
 
 ## Debug/support report
 
@@ -146,7 +149,9 @@ pressgarden litespeed database optimize-tables --target example.com
 pressgarden litespeed database optimize-all --target example.com
 ```
 
-For WordPress multisite, specify a blog ID:
+The advanced database interface passes the requested operation through to LiteSpeed after a private SQL backup. A COMMAND COMPLETED result is not the focused workflow's independent all-dashboard-counters-zero verification. For measured before/after cleanup, use `pressgarden litespeed-db optimize example.com`; see [database maintenance](LITESPEED-DATABASE.md).
+
+For the advanced WordPress multisite operation, deliberately select an existing blog ID:
 
 ```bash
 pressgarden litespeed database optimize-all --blog=2 --target example.com
@@ -154,7 +159,7 @@ pressgarden litespeed database optimize-all --blog=2 --target example.com
 
 LiteSpeed documents `litespeed-database` as the exception to its normal WP-CLI behavior: these commands do not accept standard WP-CLI global parameters. PressGarden therefore changes into each WordPress installation and executes the database command without `--path`, `--skip-plugins`, `--skip-themes`, or other global parameters.
 
-`database status` is PressGarden inventory syntax, not a LiteSpeed subcommand. It checks availability using the documented `optimize_all` command and never probes `litespeed-database status`.
+`database status` is PressGarden inventory syntax, not a LiteSpeed subcommand. It checks availability using the documented `optimize_all` command and never probes `litespeed-database status`. It does not measure optimizer counters; use `pressgarden litespeed-db status example.com` for those measurements. Native `pressgarden db check example.com` is separate and does not run LiteSpeed.
 
 
 ## Safety model
