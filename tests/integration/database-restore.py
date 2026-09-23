@@ -7,6 +7,7 @@ continues to say "restore not tested" for each operator's individual backup.
 """
 from __future__ import annotations
 
+import difflib
 import hashlib
 import json
 import os
@@ -28,6 +29,35 @@ class DrillError(RuntimeError):
 def require(condition: bool, message: str) -> None:
     if not condition:
         raise DrillError(message)
+
+
+def same_dump(expected: bytes, actual: bytes, label: str) -> None:
+    """Keep strict equality; diagnose changed statement classes without row data."""
+    if expected == actual:
+        return
+    left, right = expected.splitlines(), actual.splitlines()
+    print(f"DUMP MISMATCH {label}: expected {len(expected)} bytes/{len(left)} lines; "
+          f"actual {len(actual)} bytes/{len(right)} lines", file=sys.stderr)
+    changes = 0
+    for kind, a, b, c, d in difflib.SequenceMatcher(None, left, right, autojunk=False).get_opcodes():
+        if kind == "equal":
+            continue
+        changes += 1
+        print(f"  {kind}: expected lines {a + 1}-{b}; actual lines {c + 1}-{d}", file=sys.stderr)
+        for side, lines in (("expected", left[a:b]), ("actual", right[c:d])):
+            for line in lines[:3]:
+                table = re.match(rb"INSERT INTO `([A-Za-z0-9_]+)`", line)
+                if table:
+                    description = "INSERT " + table.group(1).decode() + " [row values withheld]"
+                elif line.startswith((b"CREATE TABLE", b") ENGINE=", b"/*!", b"SET ")):
+                    description = line[:240].decode("utf-8", "replace")
+                else:
+                    description = "[statement text withheld]"
+                print(f"    {side}: {description}; bytes={len(line)}; "
+                      f"sha256={hashlib.sha256(line).hexdigest()}", file=sys.stderr)
+        if changes >= 4:
+            break
+    raise DrillError(label)
 
 
 def authorize(arguments: Sequence[str], env: Mapping[str, str]) -> None:
@@ -254,13 +284,15 @@ class Drill:
                   '. "$PRESSGARDEN_DIR/lib/database-backup.sh"; pg_database_backup "$1"',
                   "pressgarden-disposable-recovery", str(source)], "whole-database backup helper", whole_env)
         whole_backup = self.only_backup(self.root / "whole-state")
+        same_dump(before_whole, self.snapshot(source, "source-after-backup.sql"),
+                  "Whole-database backup modified the source database.")
         self.restore(whole_backup, whole)
-        require(self.snapshot(whole, "restored-whole.sql") == before_whole,
-                "Whole-database schemas or rows differ after restore.")
-        require(self.snapshot(source, "source-after-whole.sql") == before_whole,
-                "Recovery modified the source database.")
-        require(self.snapshot(other, "other-after.sql") == unrelated,
-                "Recovery or maintenance modified the unrelated website database.")
+        same_dump(before_whole, self.snapshot(whole, "restored-whole.sql"),
+                  "Whole-database schemas or rows differ after restore.")
+        same_dump(before_whole, self.snapshot(source, "source-after-whole.sql"),
+                  "Recovery modified the source database.")
+        same_dump(unrelated, self.snapshot(other, "other-after.sql"),
+                  "Recovery or maintenance modified the unrelated website database.")
         count = len(self.tables(whole))
         require("outside_owner" in self.tables(whole), "Whole-database backup omitted the shared-database sentinel.")
         print(f"PASS: whole-database restore; {count} tables; canonical schema/data dumps match exactly.")
