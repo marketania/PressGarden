@@ -31,6 +31,27 @@ def require(condition: bool, message: str) -> None:
         raise DrillError(message)
 
 
+def canonical_dump(data: bytes) -> bytes:
+    """Normalize only redundant utf8mb4 column charset spelling, never values.
+
+    MySQL's COLLATE utf8mb4_* already selects the utf8mb4 character set.
+    Re-export after import may additionally spell CHARACTER SET utf8mb4.
+    Effective column metadata is also compared independently in the live drill.
+    """
+    lines = []
+    in_create = False
+    pattern = rb"^(  `[A-Za-z0-9_]+` (?:var)?char\([0-9]+\)|  `[A-Za-z0-9_]+` (?:tiny|medium|long)?text) CHARACTER SET utf8mb4(?= COLLATE utf8mb4_[A-Za-z0-9_]+(?: |,|\r?$))"
+    for line in data.splitlines(keepends=True):
+        if line.startswith(b"CREATE TABLE `"):
+            in_create = True
+        elif line.startswith(b") "):
+            in_create = False
+        if in_create:
+            line = re.sub(pattern, rb"\1", line)
+        lines.append(line)
+    return b"".join(lines)
+
+
 def same_dump(expected: bytes, actual: bytes, label: str) -> None:
     """Keep strict equality; diagnose changed statement classes without row data."""
     if expected == actual:
@@ -194,7 +215,17 @@ class Drill:
         path = self.root / name
         self.wp_run(site, ["db", "export", str(path), "--single-transaction", "--skip-comments",
                           "--skip-dump-date", "--order-by-primary", "--hex-blob", "--compact"], "canonical fixture snapshot")
-        return path.read_bytes()
+        return canonical_dump(path.read_bytes())
+
+    def column_metadata(self, site: Path) -> bytes:
+        # Read effective schema rather than trusting equivalent DDL spellings.
+        rows = self.query(site, "SELECT TABLE_NAME,ORDINAL_POSITION,COLUMN_NAME,COLUMN_TYPE,IS_NULLABLE,"
+                          "IF(COLUMN_DEFAULT IS NULL,'NULL',CONCAT('HEX:',HEX(COLUMN_DEFAULT))),"
+                          "IFNULL(CHARACTER_SET_NAME,''),IFNULL(COLLATION_NAME,''),EXTRA,COLUMN_KEY,"
+                          "HEX(GENERATION_EXPRESSION) FROM information_schema.COLUMNS "
+                          "WHERE TABLE_SCHEMA=DATABASE() ORDER BY TABLE_NAME,ORDINAL_POSITION")
+        require(bool(rows.strip()), "Effective column metadata is empty or unavailable.")
+        return rows
 
     def only_backup(self, state: Path) -> Path:
         files = list(state.rglob("database.sql"))
@@ -278,6 +309,7 @@ class Drill:
         print("PASS: deleted transient recovered; serialized/UTF-8/binary/NULL fixture values preserved.")
 
         before_whole = self.snapshot(source, "source-before-whole.sql")
+        before_columns = self.column_metadata(source)
         whole_env = dict(self.env, PRESSGARDEN_STATE_DIR=str(self.root / "whole-state"), ROOT=str(source))
         # The same unscoped production backup helper used by LiteSpeed database operations.
         self.run(["bash", "-c", 'set -uo pipefail; . "$PRESSGARDEN_DIR/lib/_lib.sh"; '
@@ -287,6 +319,8 @@ class Drill:
         same_dump(before_whole, self.snapshot(source, "source-after-backup.sql"),
                   "Whole-database backup modified the source database.")
         self.restore(whole_backup, whole)
+        require(self.column_metadata(whole) == before_columns,
+                "Restored effective column types/defaults/charsets/collations/keys differ.")
         same_dump(before_whole, self.snapshot(whole, "restored-whole.sql"),
                   "Whole-database schemas or rows differ after restore.")
         same_dump(before_whole, self.snapshot(source, "source-after-whole.sql"),

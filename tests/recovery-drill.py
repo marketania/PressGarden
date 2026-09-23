@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Offline boundaries for the CI-only recovery drill; no WordPress or DB needed."""
+import contextlib
+import io
 import hashlib
 import importlib.util
 import os
@@ -146,6 +148,52 @@ class RecoveryBoundaries(unittest.TestCase):
         with self.assertRaises(module.DrillError):
             drill.restore(self.path, target)
         drill.wp_run.assert_not_called()
+
+    def test_dump_comparison_preserves_strict_equality(self):
+        module.same_dump(b"CREATE TABLE fixture (id INT);\n", b"CREATE TABLE fixture (id INT);\n", "equal")
+        for actual in (b"CREATE TABLE fixture (id BIGINT);\n", b"CREATE TABLE fixture (id INT);", b""):
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(module.DrillError):
+                module.same_dump(b"CREATE TABLE fixture (id INT);\n", actual, "changed schema")
+
+    def test_dump_diagnostic_withholds_rows(self):
+        expected = b"INSERT INTO `fixture` VALUES ('private-fixture-before');\n"
+        actual = b"INSERT INTO `fixture` VALUES ('private-fixture-after');\n"
+        diagnostic = io.StringIO()
+        with contextlib.redirect_stderr(diagnostic), self.assertRaises(module.DrillError):
+            module.same_dump(expected, actual, "changed rows")
+        self.assertIn("INSERT fixture", diagnostic.getvalue())
+        self.assertNotIn("private-fixture-before", diagnostic.getvalue())
+        self.assertNotIn("private-fixture-after", diagnostic.getvalue())
+
+    def test_canonical_schema_accepts_only_redundant_matching_charset(self):
+        original = b"CREATE TABLE `fixture` (\n  `meta_key` varchar(255) COLLATE utf8mb4_unicode_520_ci DEFAULT NULL,\n  `body` longtext COLLATE utf8mb4_unicode_520_ci,\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;\n"
+        expanded = original.replace(b" COLLATE ", b" CHARACTER SET utf8mb4 COLLATE ")
+        self.assertEqual(module.canonical_dump(original), module.canonical_dump(expanded))
+        self.assertEqual(module.canonical_dump(original), original)
+        for actual in (expanded.replace(b"CHARACTER SET utf8mb4", b"CHARACTER SET utf8mb3", 1),
+                       expanded.replace(b"utf8mb4_unicode_520_ci", b"utf8mb4_bin", 1),
+                       expanded.replace(b"DEFAULT NULL", b"NOT NULL", 1),
+                       expanded.replace(b"varchar(255)", b"varchar(250)", 1),
+                       expanded.replace(b"ENGINE=InnoDB", b"ENGINE=MyISAM", 1)):
+            self.assertNotEqual(module.canonical_dump(original), module.canonical_dump(actual))
+
+    def test_canonicalization_never_changes_row_values_or_defaults(self):
+        data = b"INSERT INTO `fixture` VALUES ('CHARACTER SET utf8mb4 COLLATE utf8mb4_bin');\n"
+        self.assertEqual(module.canonical_dump(data), data)
+        data = b"CREATE TABLE `fixture` (\n  `body` text DEFAULT 'CHARACTER SET utf8mb4 COLLATE utf8mb4_bin',\n) ENGINE=InnoDB;\n"
+        self.assertEqual(module.canonical_dump(data), data)
+        data = b"  `body` text CHARACTER SET utf8mb4 COLLATE utf8mb4_bin,\n"
+        self.assertEqual(module.canonical_dump(data), data)
+
+    def test_effective_metadata_requires_nonempty_result(self):
+        drill = object.__new__(module.Drill)
+        drill.query = Mock(return_value=b"")
+        with self.assertRaises(module.DrillError):
+            drill.column_metadata(self.root)
+        drill.query = Mock(return_value=b"fixture\t1\tbody\ttext\tYES\tNULL\tutf8mb4\tutf8mb4_bin\n")
+        self.assertEqual(drill.column_metadata(self.root), drill.query.return_value)
+        self.assertIn("CHARACTER_SET_NAME", drill.query.call_args.args[1])
+        self.assertIn("COLLATION_NAME", drill.query.call_args.args[1])
 
     def test_ci_wiring_is_read_only_and_integration_is_separate(self):
         workflow = (REPO / '.github/workflows/ci.yml').read_text()

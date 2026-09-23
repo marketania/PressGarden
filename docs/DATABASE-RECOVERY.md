@@ -26,6 +26,8 @@ The drill exercises:
 
 Only status messages, versions, counts and assertion results are logged. The workflow does not upload SQL dumps, private configuration or database credentials as artifacts. Offline tests in `tests/recovery-drill.py` cover authorization, malformed/missing checksums, changed bytes, links, permissions, scope, unsafe targets and refusal to overwrite a nonempty destination.
 
+For the full restore, canonical dump comparison normalizes only the redundant `CHARACTER SET utf8mb4` clause when a column already specifies a `utf8mb4_*` collation. MySQL defines that collation as selecting the same character set even without the explicit clause; import/re-export may print it explicitly. No row values, column types, defaults, engine choices or collations are excluded from comparison. The drill additionally compares effective column metadata from `information_schema.COLUMNS`, including character sets and collations, to detect real schema changes independently of dump formatting. Offline regressions prove that changed charsets, collations, types, defaults, engines and row values are not accepted as equivalent.
+
 The workflow uses real WP-CLI database export/import commands and a real MySQL service, not database mocks. The scope and data assertions apply to these fixtures and the versions recorded in the run. They do not establish live HTTP behavior, external-service restoration, host-specific compatibility, concurrent-write consistency or a production recovery time objective.
 
 ## Before production maintenance
@@ -40,3 +42,5 @@ There is no new automatic production restore or rollback feature in this change.
 
 - [WP-CLI database export](https://developer.wordpress.org/cli/commands/db/export/): table selection and database dump options.
 - [WP-CLI database import](https://developer.wordpress.org/cli/commands/db/import/): executes the supplied SQL against the configured database; it does not create the database itself.
+
+- [MySQL column character sets and collations](https://dev.mysql.com/doc/mysql-g11n-excerpt/8.0/en/charset-column.html): an explicit collation selects its associated character set.
