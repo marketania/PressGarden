@@ -152,10 +152,12 @@ else
   command -v curl >/dev/null || { echo 'Remote installation requires curl.' >&2; exit 2; }
   curl -fsSL --proto '=https' --proto-redir '=https' --connect-timeout 15 --max-time 120 --max-filesize 33554432 \
     "https://github.com/marketania/PressGarden/archive/refs/heads/main.tar.gz" -o "$WORK/source.tar.gz"
-  TOP=$(php "$WORK/guard.php" archive "$WORK/source.tar.gz")
+  # The validator is silent on success and guarantees one top-level folder.
+  # Extract that validated folder's contents just as the self-updater does.
+  php "$WORK/guard.php" archive "$WORK/source.tar.gz"
   mkdir "$WORK/unpacked"
-  tar -xzf "$WORK/source.tar.gz" -C "$WORK/unpacked" --no-same-owner --no-same-permissions
-  SRC="$WORK/unpacked/$TOP"
+  (unset TAR_OPTIONS GZIP; tar -xzf "$WORK/source.tar.gz" -C "$WORK/unpacked" --strip-components=1 --no-same-owner --no-same-permissions)
+  SRC="$WORK/unpacked"
 fi
 [ "$(cat "$SRC/PRODUCT" 2>/dev/null)" = "$PRODUCT" ] || { echo 'Installation source identity mismatch.' >&2; exit 2; }
 for item in "$PROGRAM" install.sh uninstall.sh lib/_lib.sh config/config.example VERSION; do
