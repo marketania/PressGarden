@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Opt-in integration against two fresh fixture sites and uniquely named CI DBs.
 # Never accepts an arbitrary site path or database name from the caller.
-set -euo pipefail
+set -Eeuo pipefail
+trap 'printf "Live fixture integration failed at line %s (exit %s).\n" "$LINENO" "$?" >&2' ERR
 [ "${PRESS_FAMILY_ALLOW_ISOLATED_WP_TEST:-0}" = 1 ] || { echo 'Live fixture integration requires explicit isolated-test opt-in.' >&2;exit 2; }
 [ -n "${PRESS_TEST_DB_PASSWORD:-}" ] || { echo 'Ephemeral local CI MySQL password required.' >&2;exit 2; }
 REPO=$(cd "$(dirname "$0")/.." && pwd -P);product=$(cat "$REPO/PRODUCT");program=${product,,};prefix=${product^^}
@@ -30,11 +31,11 @@ run(){ bash "$REPO/$program" "$@"; }
 run sites
 case "$program" in
  pressharden)
-  run lock a.example;[ "$(wp config get DISALLOW_FILE_MODS --path="$site")" = true ]
+  run lock a.example;[ "$(wp config get DISALLOW_FILE_MODS --format=json --path="$site")" = true ]
   [ "$otherhash" = "$(sha256sum "$other/wp-config.php" | awk '{print $1}')" ]
-  run unlock a.example;[ "$(wp config get DISALLOW_FILE_MODS --path="$site")" = false ]
-  run wp-settings set editor disabled a.example;[ "$(wp config get DISALLOW_FILE_EDIT --path="$site")" = true ]
-  run wp-settings set debug-display disabled a.example;[ "$(wp config get WP_DEBUG_DISPLAY --path="$site")" = false ]
+  run unlock a.example;[ "$(wp config get DISALLOW_FILE_MODS --format=json --path="$site")" = false ]
+  run wp-settings set editor disabled a.example;[ "$(wp config get DISALLOW_FILE_EDIT --format=json --path="$site")" = true ]
+  run wp-settings set debug-display disabled a.example;[ "$(wp config get WP_DEBUG_DISPLAY --format=json --path="$site")" = false ]
   run auto-updates core disabled a.example
   mkdir -p "$site/wp-content/plugins/press-fixture"
   printf '<?php\n/* Plugin Name: Isolated Press Fixture */\n' > "$site/wp-content/plugins/press-fixture/press-fixture.php"
@@ -62,7 +63,22 @@ case "$program" in
   run cache enable a.example
   [ "$(wp litespeed-option get cache --path="$site" --skip-themes --skip-packages --no-color)" = 1 ]
   run litespeed-db status a.example
-  run litespeed-db optimize a.example
+  # A real WordPress bootstrap may recreate transients after deletion. Force
+  # that condition deterministically and require honest incomplete reporting;
+  # never relax product verification merely to make integration CI green.
+  mkdir -p "$site/wp-content/mu-plugins"
+  printf '%s\n' '<?php' 'if (defined("WP_CLI") && WP_CLI) { set_transient("press_family_ci_recreated", "fixture", 3600); }' > "$site/wp-content/mu-plugins/press-family-ci-recreated.php"
+  rc=0
+  run litespeed-db optimize a.example > "$T/ls-optimize" 2>&1 || rc=$?
+  cat "$T/ls-optimize"
+  [ "$rc" -eq 2 ]
+  grep -q 'UNVERIFIED' "$T/ls-optimize"
+  grep -Eq 'Unverified:[[:space:]]+1' "$T/ls-optimize"
+  grep -Eq 'Failed:[[:space:]]+0' "$T/ls-optimize"
+  grep -q 'database tables command completed' "$T/ls-optimize"
+  [ "$(wp option get _transient_press_family_ci_recreated --path="$site")" = fixture ]
+  rm -- "$site/wp-content/mu-plugins/press-family-ci-recreated.php"
+  printf 'Regenerated transient: incomplete exit 2 verified; no false optimized claim.\n'
   find "$T/state/backups" -name '*.sql' | grep -q .
   ;;
  *)
