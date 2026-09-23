@@ -1,0 +1,21 @@
+# PressGarden local configuration. Shell file; keep private and administrator-owned.
+# Explicitly exported PRESSGARDEN_* variables override these defaults.
+PRESSGARDEN_SCAN_ROOT=""
+PRESSGARDEN_DISCOVERY_DEPTH=8
+PRESSGARDEN_EXCLUDE=""
+PRESSGARDEN_DISCOVERY_CACHE_TTL=300
+PRESSGARDEN_SITE_ALIASES_FILE=""
+PRESSGARDEN_INTERACTIVE=1
+PRESSGARDEN_PROGRESS=auto
+# State/cache/reports default to isolated portable var/ or product-specific XDG paths.
+# PRESSGARDEN_STATE_DIR="/absolute/private/path"
+# PRESSGARDEN_CACHE_DIR="/absolute/private/cache"
+# PRESSGARDEN_REPORTS_DIR="/absolute/private/reports"
+# PRESSGARDEN_NOCOLOR=1
+PRESSGARDEN_CLEANUP_DAYS=30
+# Destructive image-backup removal and support-report uploads remain explicit opt-ins.
+PRESSGARDEN_LITESPEED_DESTRUCTIVE=0
+PRESSGARDEN_LITESPEED_EXTERNAL=0
+
+# QUIC.cloud / Cloudflare CLI keys use explicit --api-key-env / --cf-token-env references.
+# Environment values remain readable by trusted processes under the same account.

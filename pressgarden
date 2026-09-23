@@ -1,0 +1,320 @@
+#!/usr/bin/env bash
+set -uo pipefail
+# Internal target context is rebuilt for each CLI invocation, never inherited.
+unset _PG_TARGET_EXCLUSIONS
+
+# Resolve the real program directory even when the CLI is invoked through the
+# user-install symlink (for example ~/.local/bin/pressgarden).
+_pg_self="${BASH_SOURCE[0]}"
+while [ -L "$_pg_self" ] && command -v readlink >/dev/null 2>&1; do
+  _pg_self_dir=$(cd -P "$(dirname "$_pg_self")" 2>/dev/null && pwd -P) || break
+  _pg_link=$(readlink "$_pg_self" 2>/dev/null) || break
+  case "$_pg_link" in /*) _pg_self="$_pg_link" ;; *) _pg_self="$_pg_self_dir/$_pg_link" ;; esac
+done
+PRESSGARDEN_DIR="$(cd -P "$(dirname "$_pg_self")" 2>/dev/null && pwd -P)"
+unset _pg_self _pg_self_dir _pg_link 2>/dev/null || true
+VERSION="$(cat "$PRESSGARDEN_DIR/VERSION" 2>/dev/null || printf 'unknown')"
+PRESSGARDEN_PORTABLE=0
+[ -f "$PRESSGARDEN_DIR/.pressgarden-portable" ] && PRESSGARDEN_PORTABLE=1
+
+if [ "$PRESSGARDEN_PORTABLE" = 1 ]; then
+  CONFIG_FILE="${PRESSGARDEN_CONFIG_FILE:-$PRESSGARDEN_DIR/config/config}"
+else
+  CONFIG_FILE="${PRESSGARDEN_CONFIG_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/pressgarden/config}"
+fi
+
+# New scans must not load half-replaced libraries during an update. Existing
+# running scans still need to finish before an administrator starts updating.
+if [ -e "$PRESSGARDEN_DIR/.pressgarden-update.lock" ] || [ -L "$PRESSGARDEN_DIR/.pressgarden-update.lock" ]; then
+  case "${1:-help}" in
+    update|help|-h|--help|-V|--version|version) : ;;
+    *) printf 'PressGarden update/recovery lock is present. Scans are blocked; see docs/UPDATING.md.\n' >&2; exit 2 ;;
+  esac
+fi
+
+# Config advice must work even with a broken config, without executing it.
+if [ "${1:-}" = config-new ]; then
+  command -v php >/dev/null 2>&1 || { printf 'config-new requires PHP CLI.\n' >&2; exit 2; }
+  exec php "$PRESSGARDEN_DIR/lib/config-options.php" "$PRESSGARDEN_DIR/config/config.example" "$CONFIG_FILE"
+fi
+
+# Preserve explicitly exported PressGarden/API values so one-shot environment
+# overrides win over persistent config values.
+_pg_env_overrides=$(env | grep -E '^(PRESSGARDEN_[A-Za-z0-9_]*)=' || true)
+[ -r "$CONFIG_FILE" ] && . "$CONFIG_FILE"
+if [ -n "$_pg_env_overrides" ]; then
+  while IFS='=' read -r _pg_k _pg_v; do
+    case "$_pg_k" in PRESSGARDEN_*) printf -v "$_pg_k" '%s' "$_pg_v"; export "$_pg_k" ;; esac
+  done <<< "$_pg_env_overrides"
+fi
+unset _pg_env_overrides _pg_k _pg_v 2>/dev/null || true
+export PRESSGARDEN_PORTABLE
+
+usage() {
+  cat <<EOF
+PressGarden v$VERSION — WordPress maintenance and performance
+
+Usage: pressgarden COMMAND [arguments] [website|directory|all]
+  status                           Local maintenance overview (read-only)
+  db status|check                   Database inventory or explicit CHECK
+  db repair|optimize                Explicit action with preflight/backup/confirmation
+  db cleanup [--execute] [--revisions] [target]
+  cleanup [status|preview|execute] [--logs] [--development] [target]
+  cache status|clear|enable|disable [target]  LiteSpeed provider only
+  litespeed status [target]
+  litespeed AREA ACTION ... --target SITE   Advanced LiteSpeed management
+  litespeed-db status|optimize [target]     Verified LiteSpeed DB dashboard counters
+  sites [directory] / doctor [target]
+  config / config-new / update / version / help
+
+DB options: --target SITE, --blog=ID, --tables=NAME,NAME, --older-than=DAYS.
+Default DB table maintenance covers WordPress-registered tables, not unrelated
+or unregistered plugin tables. Explicit --tables selects additional owned tables.
+Cleanup previews by default. Live/active logs, symlinks and executable-looking
+metadata are never silently deleted. Backups stay outside website roots.
+Advanced LiteSpeed: option, purge, presets, image, online, debug, crawler, database.
+Online/CDN/support operations contact external services only when explicitly run.
+Omitted target selects the configured fleet. Unknown or empty targets never do.
+No malware scanner, threat feeds, quarantine or sibling application is required.
+EOF
+}
+show_config() {
+  local state cache
+  if [ "$PRESSGARDEN_PORTABLE" = 1 ]; then
+    state="${PRESSGARDEN_STATE_DIR:-$PRESSGARDEN_DIR/var}"; cache="${PRESSGARDEN_CACHE_DIR:-$PRESSGARDEN_DIR/var/cache}"
+  else
+    state="${PRESSGARDEN_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/pressgarden}"; cache="${PRESSGARDEN_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/pressgarden}"
+  fi
+  printf 'PressGarden v%s\nProgram: %s\nConfig: %s\nRoot: %s\nState: %s\nCache: %s\nInteractive: %s\n' "$VERSION" "$PRESSGARDEN_DIR" "$CONFIG_FILE" "$(resolve_root '')" "$state" "$cache" "${PRESSGARDEN_INTERACTIVE:-1}"
+  printf 'Cleanup age (days): %s\nCache provider: LiteSpeed (only implemented provider)\n' "${PRESSGARDEN_CLEANUP_DAYS:-30}"
+}
+# Parse targeting independently from provider operands; preserve an explicit
+# empty value as an error instead of interpreting it as an omitted target.
+operation_args() {
+  OP_TARGET=''; OP_TARGET_SEEN=0; OP_ARGS=()
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --target|--site)
+        [ "$#" -ge 2 ] && [ -n "$2" ] && [ "$OP_TARGET_SEEN" -eq 0 ] || { printf 'Missing, empty or duplicate target.\n' >&2; return 2; }
+        OP_TARGET="$2"; OP_TARGET_SEEN=1; shift 2 ;;
+      --target=*|--site=*)
+        [ "$OP_TARGET_SEEN" -eq 0 ] && [ -n "${1#*=}" ] || { printf 'Empty or duplicate target.\n' >&2; return 2; }
+        OP_TARGET=${1#*=}; OP_TARGET_SEEN=1; shift ;;
+      --*) OP_ARGS+=("$1"); shift ;;
+      *)
+        [ "$OP_TARGET_SEEN" -eq 0 ] && [ -n "$1" ] || { printf 'Empty or duplicate target.\n' >&2; return 2; }
+        OP_TARGET="$1"; OP_TARGET_SEEN=1; shift ;;
+    esac
+  done
+  if [ "$OP_TARGET_SEEN" -eq 1 ]; then select_target "$OP_TARGET"; else select_target; fi
+}
+
+resolve_root() {
+  local explicit="${1:-}" c parent
+  if [ -n "$explicit" ]; then
+    c="$explicit"
+  elif [ -n "${PRESSGARDEN_SCAN_ROOT:-}" ]; then
+    c="$PRESSGARDEN_SCAN_ROOT"
+  elif [ "$PRESSGARDEN_PORTABLE" = 1 ]; then
+    parent=$(cd "$PRESSGARDEN_DIR/.." 2>/dev/null && pwd -P || dirname "$PRESSGARDEN_DIR")
+    if [ -d "$parent/domains" ]; then c="$parent/domains"
+    elif [ -d "$parent/public_html" ]; then c="$parent/public_html"
+    else c="$parent"
+    fi
+  elif [ -d "$HOME/domains" ]; then c="$HOME/domains"
+  elif [ -d "$HOME/public_html" ]; then c="$HOME/public_html"
+  elif [ -d /var/www ]; then c=/var/www
+  else c="$PWD"
+  fi
+  if command -v php >/dev/null 2>&1; then php "$PRESSGARDEN_DIR/lib/target-path.php" "$PWD" "$c" || return 2; fi
+  if command -v realpath >/dev/null 2>&1; then realpath "$c" 2>/dev/null || printf '%s' "$c"; else (cd "$c" 2>/dev/null && pwd -P) || printf '%s' "$c"; fi
+}
+
+# One resolver for every command accepting a site/directory. A failed name must
+# never become an empty ROOT (which would silently broaden the operation).
+select_target() {
+  local target="${1:-}" result scope line kind value first
+  [ "$#" -le 1 ] || { printf 'Use one website name, directory, or all.\n' >&2; return 2; }
+  [ "$#" -eq 0 ] || [ -n "$target" ] || { printf "Explicit target cannot be empty.\n" >&2; return 2; }
+  [ -z "$target" ] || [ ! -L "$target" ] || { printf "Symlink target refused.\n" >&2; return 2; }
+  TARGET_NAME=''; TARGET_COUNT=''
+  case "$target" in
+    ''|all) ROOT=$(resolve_root '') || return 2 ;;
+    /*|./*|../*|.|..|~/*) ROOT=$(resolve_root "$target") || return 2 ;;
+    *)
+      if [[ "$target" != *.* && "$target" != *://* ]] && [ -d "$target" ]; then
+        ROOT=$(resolve_root "$target") || return 2
+      else
+        scope=$(resolve_root '') || return 2
+        result=$(bash "$PRESSGARDEN_DIR/lib/site-target.sh" "$scope" "$target") || return 2
+        first=${result%%$'\n'*}
+        IFS=$'\t' read -r ROOT TARGET_NAME TARGET_COUNT <<< "$first"
+        _PG_TARGET_EXCLUSIONS=''
+        while IFS=$'\t' read -r kind value; do
+          [ "$kind" != E ] || _PG_TARGET_EXCLUSIONS+="$value"$'\n'
+        done <<< "$result"
+        export _PG_TARGET_EXCLUSIONS
+        [ -d "$ROOT" ] && [ -n "$TARGET_NAME" ] || return 2
+        printf 'Target: %s' "$TARGET_NAME" >&2
+        [ "${TARGET_COUNT:-1}" -le 1 ] || printf ' (%s installations, including nested sites)' "$TARGET_COUNT" >&2
+        printf '\n' >&2
+      fi ;;
+  esac
+  export ROOT PRESSGARDEN_DIR
+}
+
+
+cmd="${1:-help}"; [ "$#" -gt 0 ] && shift || true
+case "$cmd" in
+  -V|--version|version) printf 'PressGarden %s\n' "$VERSION" ;;
+  help|-h|--help) usage ;;
+  config) show_config ;;
+  sites)
+    [ "$#" -le 1 ] || { printf 'Usage: ./pressgarden sites [directory]\n' >&2; exit 2; }
+    ROOT=$(resolve_root "${1:-}")
+    exec bash "$PRESSGARDEN_DIR/lib/site-target.sh" "$ROOT" --list
+    ;;
+  update)
+    # shellcheck disable=SC1090
+    . "$PRESSGARDEN_DIR/lib/update.sh"
+    pg_update
+    ;;
+  litespeed)
+    ls_target=''
+    ls_args=()
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --target|--site)
+          [ "$#" -ge 2 ] || { printf '%s requires a website, directory, or all.\n' "$1" >&2; exit 2; }
+          [ -z "$ls_target" ] || { printf 'LiteSpeed target was supplied more than once. Use one positional target or one --target/--site value.\n' >&2; exit 2; }
+          [ -n "$2" ] || { printf "Empty target refused.\n" >&2; exit 2; }; ls_target="$2"; shift 2 ;;
+        --target=*|--site=*)
+          [ -z "$ls_target" ] || { printf 'LiteSpeed target was supplied more than once. Use one positional target or one --target/--site value.\n' >&2; exit 2; }
+          ls_target=${1#*=}; [ -n "$ls_target" ] || { printf 'LiteSpeed target cannot be empty.\n' >&2; exit 2; }; shift ;;
+        *) ls_args+=("$1"); shift ;;
+      esac
+    done
+
+    # LiteSpeed database actions have no ordinary positional operands after the
+    # action name (only optional --blog=ID), so PressGarden can safely accept the
+    # same positional website target used by the rest of the CLI.
+    if [ "${ls_args[0]:-}" = database ] || [ "${ls_args[0]:-}" = db ]; then
+      ls_db_area="${ls_args[0]}"
+      ls_db_action="${ls_args[1]:-status}"
+      ls_db_known=0
+      case "$ls_db_action" in
+        status|clear-posts|clear_posts|clear-comments|clear_comments|clear-trackbacks|clear_trackbacks|clear-transients|clear_transients|optimize-tables|optimize_tables|optimize-all|optimize_all|optimize) ls_db_known=1 ;;
+      esac
+
+      # `pressgarden litespeed database example.com` means status for that site.
+      if [ "$ls_db_known" -eq 0 ] && [ -z "$ls_target" ]; then
+        case "$ls_db_action" in
+          all|*.*|*/*|.|..|~/*)
+            ls_target="$ls_db_action"
+            ls_db_action=status
+            ls_args=("$ls_db_area" "$ls_db_action")
+            ls_db_known=1
+            ;;
+        esac
+      fi
+
+      if [ "$ls_db_known" -eq 1 ]; then
+        ls_db_rest=()
+        ls_i=2
+        while [ "$ls_i" -lt "${#ls_args[@]}" ]; do
+          ls_arg="${ls_args[$ls_i]}"
+          case "$ls_arg" in
+            --blog=*) ls_db_rest+=("$ls_arg") ;;
+            --all|--*.*|--*/*)
+              ls_bad_target=${ls_arg#--}
+              printf 'Invalid PressGarden target syntax: %s\n' "$ls_arg" >&2
+              printf 'Use one of these instead:\n' >&2
+              printf '  ./pressgarden litespeed database %s %s\n' "$ls_db_action" "$ls_bad_target" >&2
+              printf '  ./pressgarden litespeed database %s --target %s\n' "$ls_db_action" "$ls_bad_target" >&2
+              exit 2
+              ;;
+            --*) ls_db_rest+=("$ls_arg") ;;
+            *)
+              [ -z "$ls_target" ] || { printf 'LiteSpeed database target was supplied more than once. Use one website/directory/all target.\n' >&2; exit 2; }
+              [ -n "$ls_arg" ] || { printf "Empty target refused.\n" >&2; exit 2; }; ls_target="$ls_arg"
+              ;;
+          esac
+          ls_i=$((ls_i+1))
+        done
+        ls_args=("$ls_db_area" "$ls_db_action" "${ls_db_rest[@]}")
+      fi
+    fi
+
+    if [ "${ls_args[0]:-}" = status ] && [ "${#ls_args[@]}" -eq 2 ]; then
+      [ -z "$ls_target" ] && [ -n "${ls_args[1]}" ] || { printf "Duplicate/empty target refused.\n" >&2; exit 2; }
+      ls_target="${ls_args[1]}"; ls_args=(status)
+    fi
+    if [ -n "$ls_target" ]; then select_target "$ls_target" || exit 2; else select_target || exit 2; fi
+    exec bash "$PRESSGARDEN_DIR/checks/litespeed.sh" "${ls_args[@]}"
+    ;;
+  litespeed-db)
+    action="${1:-status}"; [ "$#" -gt 0 ] && shift || true
+    case "$action" in
+      status|optimize) : ;;
+      optimize-all|optimize_all) action=optimize ;;
+      *) printf 'PressGarden LiteSpeed DB action must be status or optimize.\n' >&2; printf 'Examples:\n  ./pressgarden litespeed-db status example.com\n  ./pressgarden litespeed-db optimize example.com\n' >&2; exit 2 ;;
+    esac
+    lsdb_target=''
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --target|--site)
+          [ "$#" -ge 2 ] || { printf '%s requires a website, directory, or all.\n' "$1" >&2; exit 2; }
+          [ -z "$lsdb_target" ] || { printf 'LiteSpeed DB target was supplied more than once.\n' >&2; exit 2; }
+          [ -n "$2" ] || { printf "Empty target refused.\n" >&2; exit 2; }; lsdb_target="$2"; shift 2 ;;
+        --target=*|--site=*)
+          [ -z "$lsdb_target" ] || { printf 'LiteSpeed DB target was supplied more than once.\n' >&2; exit 2; }
+          lsdb_target=${1#*=}; [ -n "$lsdb_target" ] || { printf 'LiteSpeed DB target cannot be empty.\n' >&2; exit 2; }; shift ;;
+        --all|--*.*|--*/*)
+          lsdb_bad=${1#--}
+          printf 'Invalid PressGarden target syntax: %s\n' "$1" >&2
+          printf 'Use one of these instead:\n' >&2
+          printf '  ./pressgarden litespeed-db %s %s\n' "$action" "$lsdb_bad" >&2
+          printf '  ./pressgarden litespeed-db %s --target %s\n' "$action" "$lsdb_bad" >&2
+          exit 2
+          ;;
+        --*)
+          printf 'Unknown PressGarden litespeed-db option: %s\n' "$1" >&2
+          printf 'Use a positional target or --target SITE. Example: ./pressgarden litespeed-db %s example.com\n' "$action" >&2
+          exit 2
+          ;;
+        *)
+          [ -z "$lsdb_target" ] || { printf 'LiteSpeed DB target was supplied more than once. Use one website, directory, or all.\n' >&2; exit 2; }
+          [ -n "$1" ] || { printf "Empty target refused.\n" >&2; exit 2; }; lsdb_target="$1"; shift ;;
+      esac
+    done
+    if [ -n "$lsdb_target" ]; then select_target "$lsdb_target" || exit 2; else select_target || exit 2; fi
+    exec bash "$PRESSGARDEN_DIR/checks/litespeed-db.sh" "$action"
+    ;;
+  status)
+    select_target "$@" || exit 2
+    exec bash "$PRESSGARDEN_DIR/checks/status.sh" ;;
+  doctor)
+    select_target "$@" || exit 2
+    exec bash "$PRESSGARDEN_DIR/checks/doctor.sh" ;;
+  db)
+    action="${1:-status}"; [ "$#" -gt 0 ] && shift || true
+    case "$action" in status|check|repair|optimize|cleanup) ;; *) printf 'Use db status|check|repair|optimize|cleanup.\n' >&2; exit 2 ;; esac
+    operation_args "$@" || exit 2
+    exec bash "$PRESSGARDEN_DIR/checks/database.sh" "$action" "${OP_ARGS[@]}" ;;
+  cache)
+    action="${1:-status}"; [ "$#" -gt 0 ] && shift || true
+    case "$action" in status|clear|enable|disable) ;; *) printf 'Use cache status|clear|enable|disable.\n' >&2; exit 2 ;; esac
+    operation_args "$@" || exit 2
+    exec bash "$PRESSGARDEN_DIR/checks/cache.sh" "$action" "${OP_ARGS[@]}" ;;
+  cleanup)
+    action=preview
+    case "${1:-}" in status|preview|execute) action="$1"; shift ;; esac
+    operation_args "$@" || exit 2
+    exec bash "$PRESSGARDEN_DIR/checks/cleanup.sh" "$action" "${OP_ARGS[@]}" ;;
+  database)
+    printf 'PressGarden has no top-level "database" command.\n' >&2
+    printf 'Use pressgarden db check|repair|optimize|cleanup [target] for native SQL maintenance.\n' >&2
+    printf 'For LiteSpeed: ./pressgarden litespeed-db optimize example.com\n' >&2
+    exit 2 ;;
+  *) printf "Unknown PressGarden command: %s\n" "$cmd" >&2; exit 2 ;;
+esac
