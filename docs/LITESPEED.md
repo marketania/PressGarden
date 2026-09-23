@@ -27,13 +27,12 @@ pressgarden litespeed option get cache-priv --target example.com
 pressgarden litespeed option all --format=json --target example.com
 pressgarden litespeed option set cache-priv false --target example.com
 pressgarden litespeed option export --target example.com
-pressgarden litespeed option export --filename=/tmp/lscache-options.txt --target example.com
 pressgarden litespeed option import /path/options.txt --target example.com
 pressgarden litespeed option import-remote https://example.com/options.txt --target example.com
 pressgarden litespeed option reset --target example.com
 ```
 
-PressGarden creates a private pre-change option export before option mutations. Fleet exports without `--filename` create separate private files per site. A single explicit `--filename` is refused for multi-site fleet execution to prevent overwriting exports. Existing files and destinations inside discovered website roots are refused; secret-bearing exports remain private.
+PressGarden creates a private pre-change option export before option mutations. Fleet exports without `--filename` create separate private files per site. A single explicit `--filename` is refused for multi-site fleet execution to prevent overwriting exports. An explicit filename must be a new file beneath the configured PressGarden state directory (shown by `pressgarden config`), with a private existing parent directory. Paths outside that state directory, including arbitrary `/tmp` files, are refused. Existing files and destinations inside website roots are also refused. Omitting `--filename` chooses a private per-site export path automatically.
 
 Output that appears to contain API keys, tokens, passwords, secrets, credentials, or private/SSL keys is redacted by default. To intentionally display a sensitive `option get` value, set `PRESSGARDEN_LITESPEED_SHOW_SENSITIVE=1` for that invocation.
 
