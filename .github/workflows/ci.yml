@@ -63,3 +63,8 @@ jobs:
           PRESS_FAMILY_ALLOW_ISOLATED_WP_TEST: '1'
           PRESS_TEST_DB_PASSWORD: press-family-ephemeral-ci
         run: bash tests/live-wp.sh
+      - name: Isolated database backup and restore drill
+        env:
+          PRESSGARDEN_ALLOW_ISOLATED_RESTORE_TEST: '1'
+          PRESS_TEST_DB_PASSWORD: press-family-ephemeral-ci
+        run: python3 tests/integration/database-restore.py
