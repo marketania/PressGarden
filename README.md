@@ -63,6 +63,8 @@ By default, native operations address WordPress-registered tables, not every tab
 
 Every native repair/optimize/cleanup execution and advanced LiteSpeed DB mutation requires a private SQL export before writes. Exports have checksums; this is **not a restore test or a guarantee of a transactionally consistent MyISAM backup**. The native dump is table-scoped. LiteSpeed's dump covers the configured database, including all network tables, because the provider can operate across the network; it can contain other data in a shared database. Protect it and obtain a host snapshot before high-risk maintenance. SQL exports require sufficient filesystem space and the WP-CLI database client dependencies.
 
+The CI-only [database recovery drill](docs/DATABASE-RECOVERY.md) restores generated backups into empty disposable databases and checks scope and data preservation. That test validates the backup mechanism on the tested fixture; it does not restore or certify a backup from your own website. Production messages correctly continue to say `restore not tested`.
+
 `db cleanup` is a preview unless `--execute` is specified. Expired transients are the default; revision removal additionally requires `--revisions`, with a default minimum age of 30 days and a maximum 1,000 deletions per invocation. API deletion counts and SQL affected-row counts are separate from net observed counter decreases.
 
 `litespeed-db optimize` preserves the verified provider workflow: BEFORE counters from `LiteSpeed\DB_Optm::db_count()`, documented cleanup groups, AFTER counters, one bounded residual pass. Nonzero/unreadable counters do not produce a verified-optimized claim. The old internal security-suite flag can no longer authorize maintenance.
@@ -82,7 +84,7 @@ The `litespeed` advanced interface retains all eight migrated families: `option`
 
 `cache status|clear|enable|disable` is a provider adapter for **LiteSpeed only**. Missing/inactive providers are reported, not silently installed or activated. Status/enable do not prove a cache HIT or working Redis connection. `option set` independently reads the value back; a mismatch is UNVERIFIED. Other advanced provider operations report **COMMAND COMPLETED**, not an invented effect/metric.
 
-Sensitive option output is redacted; account/CDN mutation responses are withheld. Keys may be supplied as environment-variable references instead of literal CLI arguments, but the provider may receive them as subprocess arguments: this prevents shell-history disclosure, **not process-list disclosure**. Option exports contain secrets and are private. Existing export files and webroot destinations are refused.
+Sensitive option output is redacted; account/CDN mutation responses are withheld. For `online link` and `online cdn-init`, API keys/tokens supplied through environment-variable references are read by the in-process WP-CLI bridge rather than placed in operating-system command arguments. Environment variables are not a secret vault: same-account/privileged processes and loaded PHP code may still access them. This is not isolation from untrusted plugins. Option exports contain secrets and are private. Existing export files and webroot destinations are refused.
 
 In intentional automation, permanent image-backup removal also requires `PRESSGARDEN_LITESPEED_DESTRUCTIVE=1`; support report upload requires `PRESSGARDEN_LITESPEED_EXTERNAL=1`. These are not enabled by default. Database-family calls still execute inside the WordPress directory without standard WP-CLI global flags, as required by LiteSpeed.
 

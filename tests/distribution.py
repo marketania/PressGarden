@@ -13,7 +13,7 @@ for file in root.rglob('*.md'):
   if '://' in target or target.startswith(('#','mailto:')):continue
   if not (file.parent/target.split('#')[0]).exists():errors.append(f'{file.relative_to(root)}: broken link {target}')
 for file in (root/'.github/workflows').glob('*.yml'):
- for path in re.findall(r'\b(?:bash|php|python3)\s+(tests/[A-Za-z0-9_.-]+)',file.read_text()):
+ for path in re.findall(r'\b(?:bash|php|python3)\s+(tests/[A-Za-z0-9_./-]+)',file.read_text()):
   if not (root/path).is_file():errors.append(f'{file.name}: missing test {path}')
 if errors:raise SystemExit('\n'.join(errors))
 print(f'{product} distribution identity, lifecycle assets, internal links and workflow test references PASS')
