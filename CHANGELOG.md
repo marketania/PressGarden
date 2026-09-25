@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.1 — 2026-09-24
+
+- Explicitly empty or invalid `sites` directory arguments now stop with exit 2 instead of falling back to fleet inventory.
+- Directory targets retain exclusions relative to the original fleet root; discovery cache keys include that scope.
+- Uninstall refuses update/recovery markers, including dangling symlinks, before changing managed files.
+- Cleanup treats excluded nested installations as traversal boundaries, so a selected parent cannot clean an excluded child.
+
+Add approved README artwork, distribution regressions, supported-PHP CI, pinned Actions and corrected project Codex defaults.
+
 ## Unreleased
 
 - Add an opt-in, GitHub-only database recovery integration drill using fresh loopback MySQL databases: native table-scoped cleanup backup recovery, whole-database backup round-trip, damaged-backup rejection and unrelated-data preservation.
