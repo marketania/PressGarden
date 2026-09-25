@@ -116,6 +116,8 @@ The updater preserves private configuration and state; a sibling archive fails i
 
 ## Development and provenance
 
+For AI-assisted repository work, see [AI-assisted development](docs/AI-DEVELOPMENT.md). The development configuration defaults trusted Codex projects to GPT-6 Astra; the CLI tool itself has no OpenAI runtime dependency.
+
 Run `bash tests/run.sh`. Tests use bounded temporary fixtures and mock external commands. Live fixture integration, when provided, must use an explicitly isolated test database; no production websites are used.
 
 Separated from PressWarden 1.1.24 at `63adec182b4d3a20dbd5e24daa9b9fa0e98510b8`. See [provenance](PROVENANCE.md), [migration mapping](docs/MIGRATION.md), and [MIT license](LICENSE). PressWarden remains the security investigation tool; PressHarden manages security configuration and hardening. Siblings are optional alternatives for other responsibilities, not dependencies.
