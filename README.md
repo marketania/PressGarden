@@ -10,6 +10,15 @@ Owns routine maintenance, not malware remediation, vulnerability feeds, incident
 
 PressGarden is a standalone MIT-licensed Linux/Bash/PHP application. It contains its own discovery, targeting, lifecycle and relevant operation code. Neither sibling repository is required. It is not a wrapper around PressWarden.
 
+## Other Press tools
+
+PressGarden is part of the **Press Tool Family**. Other standalone tools are available for related WordPress administration tasks:
+
+- **[PressWarden](https://github.com/marketania/PressWarden)** — WordPress security auditing, malware and vulnerability detection, compromise investigation, integrity checks, and incident response.
+- **[PressHarden](https://github.com/marketania/PressHarden)** — WordPress hardening, security policy, `wp-config.php` controls, PHP posture, locking, and update preferences.
+
+Use PressGarden when you need to **maintain, clean, optimize, and manage WordPress performance safely**. The sibling tools are independent applications, not required dependencies.
+
 ## Install this distribution
 
 **Production runtime:** use an upstream-supported, security-patched PHP version. PHP 8.2–8.5 are supported at the September 2026 audit date; retained PHP 7.4 syntax tests are not a recommendation to deploy end-of-life PHP.
