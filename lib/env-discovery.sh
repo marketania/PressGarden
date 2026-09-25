@@ -84,6 +84,7 @@ PRESSGARDEN_DISCOVERY_DEPTH="${PRESSGARDEN_DISCOVERY_DEPTH:-${PRESSGARDEN_WP_DIS
 _is_wordpress_root() { local p="$1"; [ -d "$p" ] || return 1; [ -f "$p/wp-includes/version.php" ] || return 1; [ -f "$p/wp-settings.php" ] || return 1; [ -f "$p/wp-load.php" ] || return 1; [ -d "$p/wp-admin" ] || return 1; [ -d "$p/wp-content" ] || return 1; grep -qE '\$wp_version[[:space:]]*=' "$p/wp-includes/version.php" 2>/dev/null || return 1; }
 _rel_from_root() { local p="$1"; if [ "$p" = "$ROOT" ]; then printf ''; else printf '%s' "${p#"$ROOT"/}"; fi; }
 site_label_from_root() {
+  local ROOT="${2:-$ROOT}"
   local p="$1" rel before after base; rel=$(_rel_from_root "$p")
   if [ -z "$rel" ]; then base=$(basename "$ROOT"); case "$base" in public_html|htdocs|httpdocs|www|html) basename "$(dirname "$ROOT")" ;; *) printf '%s' "$base" ;; esac; return; fi
   case "$rel" in
@@ -95,10 +96,30 @@ site_label_from_root() {
   esac
 }
 site_domain_from_root() { local label; label=$(site_label_from_root "$1"); printf '%s' "${label%%/*}"; }
-_is_excluded_site() { local p="$1" label group x;
-  # Preserve exclusions resolved under the fleet root when a name narrows ROOT.
-  while IFS= read -r x; do [ -n "$x" ] || continue; case "$p" in "$x"|"$x"/*) return 0 ;; esac; done <<< "${_PG_TARGET_EXCLUSIONS:-}"
-  label=$(site_label_from_root "$p"); group=${label%%/*}; for x in $PRESSGARDEN_EXCLUDE; do [ "$x" = "$label" ] || [ "$x" = "$group" ] || [ "$x" = "$p" ] || continue; return 0; done; return 1; }
+_is_excluded_site() {
+  local p="$1" label group x fleet_label='' fleet_group=''
+  while IFS= read -r x; do
+    [ -n "$x" ] || continue
+    case "$p" in "$x"|"$x"/*) return 0 ;; esac
+  done <<< "${_PG_TARGET_EXCLUSIONS:-}"
+  label=$(site_label_from_root "$p"); group=${label%%/*}
+  # Keep configured exclusions in their original fleet namespace after a
+  # directory target narrows ROOT; explicit paths still match directly.
+  if [ -n "${_PG_FLEET_ROOT:-}" ]; then
+    case "$p" in
+      "${_PG_FLEET_ROOT}"|"${_PG_FLEET_ROOT}"/*)
+        fleet_label=$(site_label_from_root "$p" "${_PG_FLEET_ROOT}")
+        fleet_group=${fleet_label%%/*}
+        ;;
+    esac
+  fi
+  for x in $PRESSGARDEN_EXCLUDE; do
+    [ "$x" = "$label" ] || [ "$x" = "$group" ] || [ "$x" = "$p" ] || \
+      [ "$x" = "$fleet_label" ] || [ "$x" = "$fleet_group" ] || continue
+    return 0
+  done
+  return 1
+}
 _array_has() { local needle="$1"; shift; local x; for x in "$@"; do [ "$x" = "$needle" ] && return 0; done; return 1; }
 
 _refresh_scan_roots_uncached() {
@@ -125,7 +146,7 @@ _refresh_scan_roots_uncached() {
     if [ "$nested" -eq 1 ]; then NESTED_SITES+=("$label"); else TREE_ROOTS+=("$p"); fi
   done
 }
-_discovery_cache_key() { printf '%s\n' "$ROOT|$PRESSGARDEN_DISCOVERY_DEPTH|$PRESSGARDEN_EXCLUDE|$PRESSGARDEN_VERSION|${_PG_TARGET_EXCLUSIONS:-}" | cksum | awk '{print $1":"$2}'; }
+_discovery_cache_key() { printf '%s\n' "$ROOT|$PRESSGARDEN_DISCOVERY_DEPTH|$PRESSGARDEN_EXCLUDE|$PRESSGARDEN_VERSION|${_PG_TARGET_EXCLUSIONS:-}|${_PG_FLEET_ROOT:-}" | cksum | awk '{print $1":"$2}'; }
 _discovery_text_safe() {
   local v="$1"
   [ -n "$v" ] || return 1
