@@ -12,24 +12,49 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: ShellCheck error diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          shellcheck --version
+          mapfile -t files < <(git ls-files '*.sh')
+          program=$(tr '[:upper:]' '[:lower:]' < PRODUCT)
+          shellcheck --severity=error --shell=bash --format=gcc "$program" "${files[@]}"
       - name: Independent local syntax and benign-fixture tests
         env:
           PRESS_TEST_LOG_DIR: ${{ runner.temp }}/press-tests
         run: bash tests/run.sh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
           name: local-test-logs
           path: ${{ runner.temp }}/press-tests/
           retention-days: 7
+  php-supported:
+    name: PHP ${{ matrix.php }} contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.2', '8.3', '8.4', '8.5']
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Supported PHP syntax and pure contracts
+        env:
+          PHP_SERIES: ${{ matrix.php }}
+        run: |
+          docker run --rm --network=none -v "$PWD:/work:ro" -w /work "php:${PHP_SERIES}-cli" bash -c 'set -eu; php -v; for f in lib/*.php; do php -l "$f" >/dev/null; done; for f in tests/*.php; do case "$f" in */db-mysql.php) continue;; esac; php "$f"; done'
   php74:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: PHP 7.4 syntax and pure contract tests
@@ -49,7 +74,7 @@ jobs:
           --health-cmd="mysqladmin ping -h 127.0.0.1 -ppress-family-ephemeral-ci"
           --health-interval=10s --health-timeout=5s --health-retries=10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Install test-only WP-CLI

@@ -7,10 +7,11 @@ This repository uses GPT-6 as a **development workflow default**. The PressGarde
 Project-local Codex configuration selects:
 
 ```toml
-[models.new_thread]
 model = "gpt-6-astra"
 model_reasoning_effort = "medium"
 ```
+
+Project defaults use top-level `model` and `model_reasoning_effort`; `[models.new_thread]` belongs to administrator-managed `requirements.toml`, not project configuration.
 
 Codex loads project `.codex/config.toml` only for trusted projects, and explicit user/CLI choices can override project defaults.
 
@@ -70,5 +71,5 @@ Do not change defaults based only on a single successful task.
 
 - GPT-6 model guidance: https://developers.openai.com/api/docs/guides/latest-model
 - GPT-6 Astra: https://developers.openai.com/api/docs/models/gpt-6-astra
-- Codex configuration: https://developers.openai.com/docs/config-file/config-basic
+- Codex configuration: https://learn.chatgpt.com/docs/config-file/config-basic
 - GPT-6 Astra prompt/skills guidance: https://developers.openai.com/blog/rethinking-skills-and-prompts-for-gpt-6-astra

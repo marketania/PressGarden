@@ -4,6 +4,11 @@ DIR=$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 [ "$(cat "$DIR/PRODUCT" 2>/dev/null)" = PressGarden ] || { echo 'Product identity mismatch; refused.' >&2; exit 2; }
 [ ! -d "$DIR/.git" ] || { echo 'Refusing to uninstall a Git working tree.' >&2; exit 2; }
 [ "$#" -le 1 ] && { [ "$#" -eq 0 ] || [ "$1" = --yes ]; } || { echo 'Usage: uninstall.sh [--yes]' >&2; exit 2; }
+# Do not remove managed code while update/recovery depends on it.
+if [ -e "$DIR/.pressgarden-update.lock" ] || [ -L "$DIR/.pressgarden-update.lock" ]; then
+  echo 'Update/recovery lock is present; resolve the update before uninstalling.' >&2
+  exit 2
+fi
 if [ "${1:-}" != --yes ]; then
   answer=''; { exec 9<>/dev/tty; } 2>/dev/null || { echo 'Confirmation terminal required; or pass --yes.' >&2; exit 2; }
   printf 'Remove PressGarden program files from %s, keeping configuration and state? [y/N]: ' "$DIR" >&9
