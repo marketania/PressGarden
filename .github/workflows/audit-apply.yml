@@ -1,0 +1,82 @@
+name: Publish verified public-readiness candidate
+on:
+  push:
+    branches: [audit/public-readiness-20260924]
+    paths: [.github/workflows/audit-apply.yml]
+permissions:
+  contents: read
+concurrency:
+  group: public-readiness-candidate
+  cancel-in-progress: false
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: audit/public-readiness-20260924
+          fetch-depth: 0
+      - name: Verify source, apply reviewed changes, remove staging, and validate exact tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          product=$(cat PRODUCT)
+          case "$GITHUB_REPOSITORY:$product" in
+            marketania/PressWarden:PressWarden)
+              base=769bb727456b712d9d4577ca9b3c16cddef0d2b9
+              expected=bba674fdd6aa14355183ae1db9b145800d18e680 ;;
+            marketania/PressHarden:PressHarden)
+              base=576370d863731c8d219283f11e76f7d4c00606b5
+              expected=e34a68258fca6522620e6e992449907f4fe6487a ;;
+            marketania/PressGarden:PressGarden)
+              base=24ea24cc7ae567d23fd3cc91f9d91c4a789c3acb
+              expected=6457e3f1b17fc0eccf14fc411ea3c274664e1fa5 ;;
+            *) echo 'Unexpected repository/product; refusing.' >&2; exit 2 ;;
+          esac
+          git merge-base --is-ancestor "$base" HEAD
+          git diff --quiet
+          git diff --cached --quiet
+          BASE="$base" python3 - <<'PY'
+          import os, subprocess
+          paths=subprocess.check_output(['git','diff','--name-only',os.environ['BASE'],'HEAD'],text=True).splitlines()
+          for path in paths:
+              permitted=(path.startswith('.github/audit-staging/') or path.startswith('.github/audit-brand/')
+                         or (path.startswith('.github/workflows/audit-') and path.endswith('.yml'))
+                         or path=='docs/assets/press-tool-family.webp')
+              if not permitted:
+                  raise SystemExit('Source changed since the tested baseline: '+path)
+          PY
+          payload=$(mktemp -d "$RUNNER_TEMP/press-audit-patch.XXXXXX")
+          origin=https://raw.githubusercontent.com/marketania/PressWarden/b85cede5fd6258517f88fd4586cd7fdb81054c28
+          for name in apply.py public-boundaries.py public-distribution.py; do
+            curl -fsSL --proto '=https' --proto-redir '=https' "$origin/.github/audit-staging/$name" -o "$payload/$name"
+          done
+          curl -fsSL --proto '=https' --proto-redir '=https' "$origin/docs/assets/press-tool-family.webp" -o "$payload/press-tool-family.webp"
+          (
+            cd "$payload"
+            printf '%s\n' \
+              '9e37dcedff44a7a2ccd2a17a0e2993b46f668f4d2401f0d7fe96bedc88da984f  apply.py' \
+              '7a2f307bf4b4d497fe374ec2b56217db605d6be8cd4d7f1aa62ff67ad9c2e137  public-boundaries.py' \
+              'dbf52da20b7ac9a7ea2db2edd5deb273ca55fc3cfb11939030d7f8f8e4f712cb  public-distribution.py' \
+              'b233844db9fa3ba73b9478b3617ca3bcb080988cc2d081faa71523da8d2f4110  press-tool-family.webp' | sha256sum -c -
+          )
+          python3 "$payload/apply.py"
+          git rm -r --ignore-unmatch .github/audit-brand .github/audit-staging
+          git rm --ignore-unmatch .github/workflows/audit-source-snapshot.yml .github/workflows/audit-static.yml .github/workflows/audit-art.yml .github/workflows/audit-apply.yml
+          git add -A
+          actual=$(git write-tree)
+          printf 'Expected tested tree: %s\nGenerated tree: %s\n' "$expected" "$actual"
+          git diff --cached --stat
+          [ "$actual" = "$expected" ] || { echo 'Tree mismatch; no commit or push.' >&2; exit 2; }
+          git diff --cached --check
+          program=$(tr '[:upper:]' '[:lower:]' < PRODUCT)
+          bash -n "$program" lib/env-discovery.sh uninstall.sh
+          python3 tests/public-boundaries.py
+          python3 tests/public-distribution.py
+          git config user.name 'Press family audit'
+          git config user.email 'actions@users.noreply.github.com'
+          git commit -m 'Fix public distribution safety boundaries and add approved logos'
+          git push origin HEAD:audit/public-readiness-20260924
