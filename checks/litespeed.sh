@@ -17,6 +17,7 @@ LS_LABEL=''
 LS_SENSITIVE_KEY=''
 LS_USER_EXPORT=''
 LS_DB_BLOG=''
+LS_NETWORK=0
 LS_SECRET_ENV=''; LS_SECRET_FIELD=''
 LS_ARGS=()
 
@@ -28,7 +29,7 @@ Areas and actions:
   status
   option    get KEY | all [--format=FMT] | set KEY VALUE | export [--filename=PATH]
             import FILE | import-remote URL | reset
-  purge     network-list | all | url URL | blog ID | category ID... | tag ID... | post-id ID...
+  purge     network-list | all [--network] | url URL | blog ID | category ID... | tag ID... | post-id ID...
   presets   apply PRESET | backups | restore BACKUP_NUMBER
   image     push | pull | status | clean | remove-backups | switch optm|orig
   online    init | sync [--format=FMT] | services [--format=FMT] | nodes [--format=FMT]
@@ -83,8 +84,15 @@ _family_available() {
   fi
 }
 
+_purge_scope() {
+  local site="$1" scope
+  scope=$(_wp_builtin "$site" eval-file "$PRESSGARDEN_DIR/lib/litespeed-purge-scope.php" "$LS_SUB" "${LS_ARGS[0]:-}" "$LS_NETWORK" 2>/dev/null) || return 2
+  [[ "$scope" =~ ^(single:[1-9][0-9]*|network:[1-9][0-9]*|blog:[1-9][0-9]*:[1-9][0-9]*)$ ]] || return 2
+  printf '%s' "$scope"
+}
+
 _preflight() {
-  local site="$1" probe_sub="$LS_SUB"
+  local site="$1" probe_sub="$LS_SUB" scope=''
   # `database status` is a PressGarden inventory action, not a LiteSpeed
   # subcommand. Probe a real, representative command so status never calls
   # the nonexistent `wp help litespeed-database status`.
@@ -97,7 +105,10 @@ _preflight() {
   if [ -n "$LS_FAMILY" ] && ! _family_available "$site" "$LS_FAMILY" "$probe_sub"; then
     printf 'ERROR\tLiteSpeed command unavailable: litespeed-%s %s\n' "$LS_FAMILY" "$probe_sub"; return
   fi
-  printf 'READY\tLiteSpeed Cache %s\n' "$(_lscwp_version "$site" || printf unknown)"
+  if [ "$LS_FAMILY" = purge ] && { [ "$LS_SUB" = all ] || [ "$LS_SUB" = blog ]; }; then
+    scope=$(_purge_scope "$site") || { printf 'ERROR\tPurge scope unverified: multisite all requires --network; blog requires an existing active ID in this network. No purge performed.\n'; return; }
+  fi
+  printf 'READY\tLiteSpeed Cache %s\t%s\n' "$(_lscwp_version "$site" || printf unknown)" "$scope"
 }
 
 _redact_stream() {
@@ -207,9 +218,14 @@ _parse_purge() {
   LS_FAMILY=purge; LS_SUB="${1:-}"; [ "$#" -gt 0 ] && shift || true
   case "$LS_SUB" in
     network_list|network-list) LS_SUB=network_list; [ "$#" -eq 0 ] || fail_usage 'purge network-list takes no arguments.'; LS_LABEL='list multisite network IDs' ;;
-    all) [ "$#" -eq 0 ] || fail_usage 'purge all takes no arguments.'; LS_MUTATES=1; LS_LABEL='purge all LiteSpeed cache' ;;
+    all)
+      [ "$#" -eq 0 ] || { [ "$#" -eq 1 ] && [ "$1" = --network ]; } || fail_usage 'purge all accepts only --network for deliberate network-wide scope.'
+      [ "$#" -eq 0 ] || LS_NETWORK=1
+      LS_MUTATES=1; LS_LABEL='purge all LiteSpeed cache'
+      [ "$LS_NETWORK" = 0 ] || LS_LABEL='purge all LiteSpeed cache (explicit network-wide scope)'
+      ;;
     url) [ "$#" -eq 1 ] || fail_usage 'purge url requires URL.'; case "$1" in http://*|https://*) : ;; *) fail_usage 'Purge URL must be absolute http(s).' ;; esac; LS_ARGS=("$1"); LS_MUTATES=1; LS_LABEL='purge URL cache' ;;
-    blog) [ "$#" -eq 1 ] && _is_uint "$1" || fail_usage 'purge blog requires numeric ID.'; LS_ARGS=("$1"); LS_MUTATES=1; LS_LABEL="purge blog $1" ;;
+    blog) [ "$#" -eq 1 ] && [[ "$1" =~ ^[1-9][0-9]{0,9}$ ]] || fail_usage 'purge blog requires numeric ID.'; LS_ARGS=("$1"); LS_MUTATES=1; LS_LABEL="purge blog $1" ;;
     category|tag)
       [ "$#" -ge 1 ] || fail_usage "purge $LS_SUB requires one or more numeric IDs."
       for x in "$@"; do _is_uint "$x" || fail_usage "purge $LS_SUB IDs must be numeric."; done
@@ -379,13 +395,14 @@ _database_status() {
 
 _execute() {
   local site label row state detail ready=0 skipped=0 preflight_failed=0 ok=0 failed=0 out rc backup export_file export_root
-  local -a eligible=()
+  local -a eligible=() purge_scopes=()
+  local scope current_scope index=0 expected_scope
   require_wp; discover_sites
   printf 'LiteSpeed action: %s\n' "$LS_LABEL"
   printf 'Scope: %s discovered WordPress installation(s)\n\n' "${#WP_SITES[@]}"
   for site in "${WP_SITES[@]}"; do
-    label=$(site_label_from_root "$site"); row=$(_preflight "$site"); IFS=$'\t' read -r state detail <<< "$row"
-    case "$state" in READY) ready=$((ready+1)); eligible+=("$site"); printf '  ✓ %-34s READY  %s\n' "$label" "$detail" ;; SKIP) skipped=$((skipped+1)); printf '  - %-34s SKIP   %s\n' "$label" "$detail" ;; *) preflight_failed=$((preflight_failed+1)); printf '  ✖ %-34s ERROR  %s\n' "$label" "$detail" ;; esac
+    label=$(site_label_from_root "$site"); row=$(_preflight "$site"); IFS=$'\t' read -r state detail scope <<< "$row"
+    case "$state" in READY) ready=$((ready+1)); eligible+=("$site"); purge_scopes+=("$scope"); printf '  ✓ %-34s READY  %s\n' "$label" "$detail${scope:+; scope $scope}" ;; SKIP) skipped=$((skipped+1)); printf '  - %-34s SKIP   %s\n' "$label" "$detail" ;; *) preflight_failed=$((preflight_failed+1)); printf '  ✖ %-34s ERROR  %s\n' "$label" "$detail" ;; esac
   done
   [ "${#eligible[@]}" -gt 0 ] || { printf '\nNo eligible LiteSpeed Cache sites found.\n'; [ "$preflight_failed" -eq 0 ] || return 2; return 0; }
 
@@ -397,9 +414,17 @@ _execute() {
   if [ "$LS_MUTATES" = 1 ]; then pg_mutation_preflight || return 2; _confirm "${#eligible[@]}" "$LS_LABEL" || return 1; fi
 
   for site in "${eligible[@]}"; do
+    expected_scope="${purge_scopes[$index]}"; index=$((index+1))
     pg_unlock_site
     if [ "$LS_MUTATES" = 1 ]; then pg_lock_site "$site" || { failed=$((failed+1)); continue; }; fi
     label=$(site_label_from_root "$site"); backup=''
+    if [ -n "$expected_scope" ]; then
+      current_scope=$(_purge_scope "$site") || current_scope=''
+      if [ "$current_scope" != "$expected_scope" ]; then
+        printf '  FAILED %s: purge scope changed or became unavailable after preflight; no purge performed.\n' "$label"
+        failed=$((failed+1)); continue
+      fi
+    fi
     if [ "$LS_BACKUP" = 1 ]; then
       backup=$(_backup_options "$site" "$label") || { printf '  ✖ %-34s FAILED  could not create private LiteSpeed option backup; unchanged\n' "$label"; failed=$((failed+1)); continue; }
       printf '  ℹ %-34s BACKUP %s\n' "$label" "$backup"
