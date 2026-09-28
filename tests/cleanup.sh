@@ -22,13 +22,14 @@ set +e; run cleanup execute example.com > "$T/suspicious"; rc=$?; set -e
 [ "$rc" -eq 2 ]; [ -f "$p/.DS_Store" ]; grep -q STOPPED "$T/suspicious"
 rm "$p/.DS_Store"; ln -s "$T/sites/other.com/public_html/.DS_Store" "$p/.DS_Store"
 run cleanup execute example.com > /dev/null; [ -L "$p/.DS_Store" ]; [ -f "$T/sites/other.com/public_html/.DS_Store" ]
-# Explicit development cleanup preserves every live Git tree and application vendor files.
+# Explicit development cleanup preserves project settings, Git trees and application vendor files.
 rm "$p/.DS_Store"
 echo inert > "$p/.editorconfig"; touch -d '90 days ago' "$p/.editorconfig"
 mkdir -p "$p/project/.git" "$p/wp-content/plugins/demo"
 for f in "$p/project/.editorconfig" "$p/wp-content/plugins/demo/.gitignore"; do echo inert > "$f";touch -d '90 days ago' "$f";done
+echo inert > "$p/.eslintcache"; touch -d '90 days ago' "$p/.eslintcache"
 run cleanup execute example.com --development > "$T/development"
-[ ! -f "$p/.editorconfig" ];[ -f "$p/project/.editorconfig" ];[ -f "$p/wp-content/plugins/demo/.gitignore" ]
+[ -f "$p/.editorconfig" ];[ ! -f "$p/.eslintcache" ];[ -f "$p/project/.editorconfig" ];[ -f "$p/wp-content/plugins/demo/.gitignore" ]
 ln -s "$T/sites/other.com/public_html/.DS_Store" "$p/.DS_Store"
 # Incomplete scan means no deletion; unbounded recursion is not allowed.
 rm "$p/.DS_Store"; echo harmless > "$p/.DS_Store"; touch -d '90 days ago' "$p/.DS_Store"
