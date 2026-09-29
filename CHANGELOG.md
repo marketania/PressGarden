@@ -2,6 +2,8 @@
 
 ## Unreleased — cleanup preservation and snapshot refinement
 
+- Safely bound and escape LiteSpeed provider responses, reject unsafe option-readback files, and distinguish output failures from command completion. Add 13 inert output/readback methods.
+
 - Integrate the multisite table/cache scope safeguards with cleanup snapshot/evidence preservation.
 - Bind native database mutations to the selected table plan and connected/configured database identity; refuse changes around backup or final execution even when table names match.
 - Add inert race regressions and real disposable WordPress/MySQL identity mismatch coverage without changing public CLI syntax.

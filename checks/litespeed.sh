@@ -111,12 +111,8 @@ _preflight() {
   printf 'READY\tLiteSpeed Cache %s\t%s\n' "$(_lscwp_version "$site" || printf unknown)" "$scope"
 }
 
-_redact_stream() {
-  php "$PRESSGARDEN_DIR/lib/litespeed-output.php" redact
-}
 _show_output() {
   local file="$1" mode="${2:-full}"
-  [ -s "$file" ] || return 0
   if { [ "$AREA" = online ] && [ "$LS_MUTATES" = 1 ]; } || [ "$AREA" = debug ]; then
     printf '        Provider response withheld to avoid disclosing credentials/support data.\n'; return 0
   fi
@@ -124,8 +120,8 @@ _show_output() {
     printf '        [REDACTED sensitive option value]\n'
     return 0
   fi
-  if [ "$mode" = bounded ]; then tr -d '\r' < "$file" | _redact_stream | head -20 | sed 's/^/        /'
-  else tr -d '\r' < "$file" | _redact_stream | sed 's/^/        /'; fi
+  # Limit rows inside the renderer; head/SIGPIPE must not mimic a display failure.
+  php -d memory_limit=96M "$PRESSGARDEN_DIR/lib/litespeed-output.php" display "$file" "$mode" | sed 's/^/        /'
 }
 
 _backup_options() {
@@ -394,7 +390,7 @@ _database_status() {
 }
 
 _execute() {
-  local site label row state detail ready=0 skipped=0 preflight_failed=0 ok=0 failed=0 out rc backup export_file export_root
+  local site label row state detail ready=0 skipped=0 preflight_failed=0 ok=0 failed=0 output_failed=0 out rc backup export_file export_root
   local -a eligible=() purge_scopes=()
   local scope current_scope index=0 expected_scope
   require_wp; discover_sites
@@ -466,15 +462,24 @@ _execute() {
       ok=$((ok+1)); printf '  ✓ %-34s COMMAND COMPLETED' "$label"
       if [ "$AREA" = option ] && [ "$LS_SUB" = export ]; then printf '  %s' "$export_file"; fi
       printf '\n'
-      if [ "$LS_OUTPUT" = 1 ] && ! { [ "$AREA" = option ] && [ "$LS_SUB" = export ]; }; then _show_output "$out" "$([ "$LS_MUTATES" = 1 ] && printf bounded || printf full)"; fi
+      if [ "$LS_OUTPUT" = 1 ] && ! { [ "$AREA" = option ] && [ "$LS_SUB" = export ]; }; then
+        if ! _show_output "$out" "$([ "$LS_MUTATES" = 1 ] && printf bounded || printf full)"; then
+          output_failed=$((output_failed+1))
+          printf '  OUTPUT INCOMPLETE %s: command completed but its response could not be safely displayed. Changes may already have occurred; do not retry blindly.\n' "$label" >&2
+        fi
+      fi
     else
-      failed=$((failed+1)); printf '  ✖ %-34s FAILED  exit %s\n' "$label" "$rc"; _show_output "$out" bounded
+      failed=$((failed+1)); printf '  ✖ %-34s FAILED  exit %s\n' "$label" "$rc"
+      if ! _show_output "$out" bounded; then
+        output_failed=$((output_failed+1))
+        printf '  OUTPUT INCOMPLETE %s: failed command response could not be safely displayed; inspect retained recovery data before retrying.\n' "$label" >&2
+      fi
     fi
     rm -f "$out"
   done
   pg_unlock_site
-  printf '\nSummary: success %s • skipped %s • preflight errors %s • execution failures %s\n' "$ok" "$skipped" "$preflight_failed" "$failed"
-  [ "$preflight_failed" -eq 0 ] && [ "$failed" -eq 0 ] || return 2
+  printf '\nSummary: success %s • skipped %s • preflight errors %s • execution failures %s • output failures %s\n' "$ok" "$skipped" "$preflight_failed" "$failed" "$output_failed"
+  [ "$preflight_failed" -eq 0 ] && [ "$failed" -eq 0 ] && [ "$output_failed" -eq 0 ] || return 2
 }
 
 if [ "$AREA" = status ]; then _status

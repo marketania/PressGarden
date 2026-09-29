@@ -106,3 +106,41 @@ Primary references:
 - [MariaDB DATABASE](https://mariadb.com/docs/server/reference/sql-functions/secondary-functions/information-functions/database): equivalent current-database semantics; compatibility does not substitute for a real MariaDB integration run.
 
 No main-branch merge, version bump, release, tag or production operation is included.
+
+## LiteSpeed output and readback checkpoint
+
+The advanced LiteSpeed wrapper now keeps provider command completion separate from
+response-display success. A provider may have completed a mutation before its
+response is rejected. `OUTPUT INCOMPLETE` and the separate `output failures` count
+return exit 2 in that situation; `execution failures` is not fabricated, and the
+operation is not retried. Check current state and retained recovery exports before
+repeating it. An unaffected later site still runs and retains its own outcome.
+
+Readback verification accepts only a readable, single-link regular local file of
+at most 1 MiB. Symlinks (including parent components), hardlinks, FIFOs, oversized
+files and missing/changed sources are refused before comparison. Identity is checked
+on the open handle and after the bounded read. Existing boolean/empty-string and
+CRLF normalization is retained; unsafe sources cannot count as verified readback.
+
+Displayed provider-response files have a 4-MiB input bound. Plain text terminal and
+Unicode directional controls are represented visibly, with ordinary Unicode kept.
+Malformed UTF-8 bytes are escaped. Existing sensitive-key/line redaction, private
+option values, and withheld account/debug responses remain. JSON is recursively
+redacted before display. The display is capped at 20 rows for mutation responses or
+10,000 otherwise, and 4,096 display bytes per row, with explicit omission markers.
+An intentional display cap is not a failed command. This decorated terminal output
+is not a new raw machine-readable JSON interface.
+
+These checks cover the advanced wrapper's response/readback paths, not every
+provider version string, CLI message, secret format or direct output surface.
+Key-name redaction cannot prove that arbitrary provider text contains no secrets;
+do not publish raw captures or exports. File bounds apply when interpreting an
+already captured response, not to all upstream process writes, elapsed time or
+network activity. Configured providers and WordPress bootstrap remain trusted
+executable inputs. File snapshots do not isolate against every same-account writer.
+
+Regression tests exercise the real wrapper with inert recording providers and
+actual files/links/FIFOs. They do not contact LiteSpeed or customer sites. Relevant
+contracts: PHP [fopen](https://www.php.net/manual/en/function.fopen.php),
+[bounded stream reads](https://www.php.net/manual/en/function.stream-get-contents.php),
+and the [official LiteSpeed CLI](https://docs.litespeedtech.com/lscache/lscwp/cli/).
