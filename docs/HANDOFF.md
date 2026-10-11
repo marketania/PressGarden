@@ -6,7 +6,6 @@ never push that agent's branch. Remove the entry when the PR is merged.
 
 | Agent | Branch | Owned area | Status |
 |---|---|---|---|
-| Codex | `codex/cloud-development-setup` | Agent instructions, check entry point, CI local checks, PR template and collaboration docs | Setup PR prepared for Claude review; no production changes |
 
 This is PressGarden, an independent Bash/PHP application. Runtime changes, client sites,
 production credentials and deployment infrastructure are outside this setup.
