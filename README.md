@@ -133,6 +133,9 @@ The updater preserves private configuration and state; a sibling archive fails i
 
 ## Development and provenance
 
+For Codex/Claude coordination, review [GitHub collaboration](docs/GITHUB-COLLABORATION.md)
+and the current [handoff](docs/HANDOFF.md). Run `bash scripts/check.sh` for local checks.
+
 For AI-assisted repository work, see [AI-assisted development](docs/AI-DEVELOPMENT.md). The development configuration defaults trusted Codex projects to GPT-6 Astra; the CLI tool itself has no OpenAI runtime dependency.
 
 Run `bash tests/run.sh`. Tests use bounded temporary fixtures and mock external commands. Live fixture integration, when provided, must use an explicitly isolated test database; no production websites are used.
