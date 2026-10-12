@@ -6,7 +6,7 @@ never push that agent's branch. Remove the entry when the PR is merged.
 
 | Agent | Branch | Owned area | Status |
 |---|---|---|---|
-| Codex | `codex/build-decision-2026-10-11` | Dated deployment decision and aligned agent references | Documentation only; product development parked pending migration verification |
+| Codex | `codex/build-decision-2026-10-11` | Build decision, CI scope/concurrency and aligned cost guidance | Offline CI checks passed; October publishing authorized within existing $30 cap; CI and independent review required; product development remains parked |
 
 This is PressGarden, an independent Bash/PHP application. Runtime changes, client sites,
 production credentials and deployment infrastructure are outside this setup.

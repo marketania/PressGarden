@@ -44,3 +44,8 @@ changing permissions or billing, configuring credentials, or releasing to a stor
 
 References for later owner verification: [GitHub Actions billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions)
 and [Apple Developer membership](https://developer.apple.com/help/account/basics/about-your-developer-account).
+
+Dated exception: [the CI usage policy](CI-USAGE-POLICY.md) records the owner's
+October 2026 paid Actions authorization within the existing $30 monthly cap and
+the intended $0 paid limit from November. This temporary exception does not make
+paid CI a required architecture or establish signing/release readiness.
