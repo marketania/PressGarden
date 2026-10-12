@@ -4,10 +4,46 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
 permissions:
   contents: read
+# Cancel superseded runs of the same pull request. Main and manual runs get a
+# unique group so every exact-commit run finishes for the release gate.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
+  changes:
+    name: Heavy-check scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      heavy: ${{ steps.scope.outputs.heavy }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: github.event_name == 'pull_request' && !github.event.pull_request.draft
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Skip PHP matrix and WordPress jobs only for draft or documentation-only pull requests
+        id: scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          IS_DRAFT: ${{ github.event.pull_request.draft }}
+        run: |
+          set -euo pipefail
+          # Fail safe: anything other than a confirmed draft or docs-only pull request runs everything.
+          heavy=true
+          if [ "$EVENT_NAME" = pull_request ]; then
+            if [ "$IS_DRAFT" = true ]; then
+              heavy=false
+            elif changed=$(git diff --name-only HEAD^1 HEAD) && [ -n "$changed" ]; then
+              if ! grep -qvE '(^docs/|\.md$)' <<<"$changed"; then heavy=false; fi
+            fi
+          fi
+          echo "heavy=$heavy" >> "$GITHUB_OUTPUT"
+          echo "Run PHP matrix and WordPress jobs: $heavy"
   local:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -35,6 +71,9 @@ jobs:
           retention-days: 7
   php-supported:
     name: PHP ${{ matrix.php }} contracts
+    needs: changes
+    # Matrix jobs skipped at job level report an unexpanded check name, so gate steps instead.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
@@ -42,15 +81,22 @@ jobs:
       matrix:
         php: ['8.2', '8.3', '8.4', '8.5']
     steps:
+      - name: Draft or documentation-only pull request
+        if: needs.changes.outputs.heavy == 'false'
+        run: echo 'Skipped; runs when the pull request has code changes and is ready for review.'
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: needs.changes.outputs.heavy != 'false'
         with:
           persist-credentials: false
       - name: Supported PHP syntax and pure contracts
+        if: needs.changes.outputs.heavy != 'false'
         env:
           PHP_SERIES: ${{ matrix.php }}
         run: |
           docker run --rm --network=none -v "$PWD:/work:ro" -w /work "php:${PHP_SERIES}-cli" bash -c 'set -eu; php -v; for f in lib/*.php; do php -l "$f" >/dev/null; done; for f in tests/*.php; do case "$f" in */db-mysql.php) continue;; esac; php "$f"; done'
   php74:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.heavy != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -61,6 +107,8 @@ jobs:
         run: |
           docker run --rm --network=none -v "$PWD:/work:ro" -w /work php:7.4-cli bash -c 'set -eu; for f in lib/*.php; do php -l "$f" >/dev/null; done; for f in tests/*.php; do case "$f" in */db-mysql.php) continue;; esac; php "$f"; done'
   wordpress:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.heavy != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
