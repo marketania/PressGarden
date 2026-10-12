@@ -18,11 +18,19 @@ done
 case "$action" in repair|optimize) execute=1;; esac
 require_wp; discover_sites
 [ "$execute" = 0 ] || pg_mutation_preflight || exit 2
-plans=(); failed=0
+plans=(); identities=(); failed=0
+_native_identity() {
+  local value
+  value=$(wp eval-file "$PRESSGARDEN_DIR/lib/database.php" identity "$tables" "$blog" 0 "$revisions" "$days" '' --path="$1" "${WPQ[@]}") || return 2
+  [[ "$value" =~ ^[a-f0-9]{64}$ ]] || { printf 'Database identity is unavailable; no maintenance authorized.\n' >&2; return 2; }
+  printf '%s' "$value"
+}
 for site in "${WP_SITES[@]}"; do
+  identity=''
+  if [ "$execute" = 1 ]; then identity=$(_native_identity "$site") || { failed=1; continue; }; fi
   plan=$(wp eval-file "$PRESSGARDEN_DIR/lib/database.php" plan "$tables" "$blog" 0 "$revisions" "$days" '' --path="$site" "${WPQ[@]}") || { failed=1; continue; }
   [[ "$plan" =~ ^[A-Za-z0-9_]+(,[A-Za-z0-9_]+)*$ ]] || { printf 'Invalid table plan; nothing changed.\n' >&2; failed=1; continue; }
-  plans+=("$plan")
+  plans+=("$plan"); identities+=("$identity")
   printf 'PREFLIGHT %s: %s\n' "$(site_label_from_root "$site")" "$plan"
 done
 [ "$failed" = 0 ] && [ "${#plans[@]}" = "${#WP_SITES[@]}" ] || exit 2
@@ -33,9 +41,18 @@ failed=0; partial=0; completed=0; i=0
 for site in "${WP_SITES[@]}"; do
   pg_unlock_site
   if [ "$execute" = 1 ]; then pg_lock_site "$site" || { failed=$((failed+1)); i=$((i+1)); continue; }; fi
-  plan=${plans[$i]}; i=$((i+1)); printf '\n%s\n' "$(site_label_from_root "$site")"
+  plan=${plans[$i]}; identity=${identities[$i]}; i=$((i+1)); printf '\n%s\n' "$(site_label_from_root "$site")"
+  if [ "$execute" = 1 ]; then
+    current=$(_native_identity "$site") || { failed=$((failed+1)); continue; }
+    [ "$current" = "$identity" ] || { printf 'REFUSED: database identity changed before backup; nothing mutated.\n' >&2; failed=$((failed+1)); continue; }
+  fi
   if [ "$execute" = 1 ]; then backup_plan="$plan"; [ "$revisions" = 0 ] || backup_plan=''; pg_database_backup "$site" "$backup_plan" || { failed=$((failed+1)); continue; }; fi
   digest=$(printf '%s' "$plan" | sha256sum | awk '{print $1}')
+  if [ "$execute" = 1 ]; then
+    current=$(_native_identity "$site") || { failed=$((failed+1)); continue; }
+    [ "$current" = "$identity" ] || { printf 'REFUSED: database identity changed during backup; no maintenance performed.\n' >&2; failed=$((failed+1)); continue; }
+    digest="$digest:$identity"
+  fi
   rc=0
   wp eval-file "$PRESSGARDEN_DIR/lib/database.php" "$action" "$plan" "$blog" "$execute" "$revisions" "$days" "$digest" --path="$site" "${WPQ[@]}" || rc=$?
   case "$rc" in 0) completed=$((completed+1));; 1) partial=$((partial+1));; *) failed=$((failed+1));; esac

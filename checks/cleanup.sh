@@ -13,7 +13,7 @@ done
 discover_sites
 if [ "$action" = execute ]; then
   php "$PRESSGARDEN_DIR/lib/ops-safety.php" scope "$PRESSGARDEN_STATE_DIR" "${WP_SITES[@]}" || exit 2
-  pg_confirm "Back up then remove old disposable files on ${#WP_SITES[@]} selected site(s)? Current logs and application code remain untouched." || exit 1
+  # Each site confirms its exact in-memory candidate preview inside cleanup.php.
 fi
 # Excluded children are traversal boundaries, never cleanup targets.
 sites_json=$(php -r 'echo json_encode(array_slice($argv,1));' "${WP_SITES[@]}" "${MANUAL_EXCLUDED_ROOTS[@]}") || exit 2

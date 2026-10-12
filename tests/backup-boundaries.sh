@@ -14,7 +14,7 @@ case "$1" in
  core) if [ "${3:-}" = --network ]; then exit 1; fi;;
  plugin) if [ "$2" = get ]; then echo 7.5; fi;;
  help) exit 0;;
- eval-file) if [ "${3:-}" = plan ]; then echo wp_options,wp_posts; else echo MUTATION >> "$TEST_MUTATIONS"; fi;;
+ eval-file) if [ "${3:-}" = plan ]; then echo wp_options,wp_posts; elif [ "${3:-}" = identity ]; then printf '%064d\n' 0; else echo MUTATION >> "$TEST_MUTATIONS"; fi;;
  db) [ "$2" = export ] || exit 2; [ ! -e "$TEST_FAIL_BACKUP" ] || exit 40; printf '%s\n' '-- isolated fixture SQL dump only' > "$3";;
  litespeed-database) echo MUTATION >> "$TEST_MUTATIONS";;
  *) exit 95;;
