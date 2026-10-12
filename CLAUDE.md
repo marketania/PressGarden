@@ -31,3 +31,23 @@ For reversible documentation-only changes, use focused validation rather than un
 - Record blocked credential, account or platform setup as owner actions. Do not create credentials, OAuth grants, unsafe fork `pull_request_target` workflows, or production auto-deployment.
 
 See [GitHub collaboration and proposed checks](docs/GITHUB-COLLABORATION.md). Product-specific rules above remain in effect. Keep this file and `CLAUDE.md` aligned.
+
+## Build decision and migration hold
+
+Read [the owner build/deployment decision dated 2026-10-11](docs/DEPLOYMENT-DECISION.md).
+It records the shared GitHub Free/Actions mobile architecture, not signing or
+release readiness. This Bash/PHP repository gains no mobile workflow; preserve
+its existing release rules. Product development remains parked until migration
+is verified. Existing action-time approvals still apply.
+
+## CI usage and publication budget
+
+Follow [the shared CI usage policy](docs/CI-USAGE-POLICY.md): batch commits, run
+applicable local checks before a deliberate push, cancel superseded PR checks,
+and preserve required contexts/release safeguards without skip-ci bypasses.
+The owner authorizes paid Actions only through October 2026 within the existing
+$30 monthly cap; do not increase it. The intended paid limit is $0 from November,
+not a verified billing setting. October permission does not renew automatically;
+from November require a confirmed $0 guard or new dated budget before paid runs.
+Work locally/offline first; keep release symbols and approved assets. Independent
+review and passing required CI are still necessary before any authorized merge.
