@@ -38,4 +38,4 @@ Read [the owner build/deployment decision dated 2026-10-11](docs/DEPLOYMENT-DECI
 It records the shared GitHub Free/Actions mobile architecture, not signing or
 release readiness. This Bash/PHP repository gains no mobile workflow; preserve
 its existing release rules. Product development remains parked until migration
-is verified and the owner resumes it. Existing action-time approvals still apply.
+is verified. Existing action-time approvals still apply.

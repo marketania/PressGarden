@@ -28,8 +28,8 @@ mobile decision for Codex and Claude without adding mobile workflows or changing
 existing CLI packaging/source-release rules. Web-only projects retain their own
 hosting and deployment rules; this decision does not prescribe a new web host.
 
-**Product development remains parked until migration is verified and the owner
-resumes it.** This documentation task is not evidence that migration is complete.
+**Product development remains parked until migration is verified.**
+This documentation task is not evidence that migration is complete.
 
 ## Readiness and authorization
 
