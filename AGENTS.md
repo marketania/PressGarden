@@ -31,3 +31,11 @@ For reversible documentation-only changes, use focused validation rather than un
 - Record blocked credential, account or platform setup as owner actions. Do not create credentials, OAuth grants, unsafe fork `pull_request_target` workflows, or production auto-deployment.
 
 See [GitHub collaboration and proposed checks](docs/GITHUB-COLLABORATION.md). Product-specific rules above remain in effect. Keep this file and `CLAUDE.md` aligned.
+
+## Build decision and migration hold
+
+Read [the owner build/deployment decision dated 2026-10-11](docs/DEPLOYMENT-DECISION.md).
+It records the shared GitHub Free/Actions mobile architecture, not signing or
+release readiness. This Bash/PHP repository gains no mobile workflow; preserve
+its existing release rules. Product development remains parked until migration
+is verified and the owner resumes it. Existing action-time approvals still apply.
