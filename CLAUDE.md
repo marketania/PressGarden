@@ -25,7 +25,7 @@ For reversible documentation-only changes, use focused validation rather than un
 - Use one branch per agent/task. Codex uses `codex/`; Claude uses `claude/` or `fix/`. Never push another agent's branch; comment on its PR to coordinate. Coordination is through repository files, branches, PRs and labels only.
 - Keep commits and PRs in normal English. Every PR lists migrations, data files, owner actions, tests and risks; include screenshots for UI changes, with Arabic/mobile views only where applicable.
 - Run `bash scripts/check.sh` for fail-fast dependency, syntax, ShellCheck and benign-fixture validation. Tests must not call live financial or provider APIs. Real WordPress/MySQL checks belong only to explicitly isolated fixtures/CI.
-- An agent may merge only its own PR after required CI passes and the other agent reviews, unless the owner explicitly waives review. Action-time approvals still apply: these instructions do not authorize a merge, deployment or production operation now.
+- An agent may merge only its own PR after required CI passes and existing permissions and server rules allow it. Claude/Codex peer review is optional for any PR; no owner waiver is needed to skip it. These instructions do not authorize unrelated merges, deployments or production operations.
 - Apply and record authorized migrations before a dependent production deployment. Before any future deployment, check `main` for unapplied migrations; afterward record the deployment URL and health results. Do not invent a migration or hosting stack for this Bash/PHP tool.
 - Preserve existing CI, release gates and production safeguards. Required checks and branch-protection changes are security-sensitive: propose exact changes and obtain specific action-time approval before applying them.
 - Record blocked credential, account or platform setup as owner actions. Do not create credentials, OAuth grants, unsafe fork `pull_request_target` workflows, or production auto-deployment.
@@ -49,5 +49,5 @@ The owner authorizes paid Actions only through October 2026 within the existing
 $30 monthly cap; do not increase it. The intended paid limit is $0 from November,
 not a verified billing setting. October permission does not renew automatically;
 from November require a confirmed $0 guard or new dated budget before paid runs.
-Work locally/offline first; keep release symbols and approved assets. Independent
-review and passing required CI are still necessary before any authorized merge.
+Work locally/offline first; keep release symbols and approved assets. Required
+CI and existing permissions remain necessary for merge; agent peer review is optional.

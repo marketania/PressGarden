@@ -6,7 +6,7 @@ Each repository publishes independently. A main-branch push with a new `VERSION`
 
 ## Maintainer sequence
 
-1. Review changes through a PR. Update VERSION and its release notes for a new release; update the policy/trigger list when adding CI workflows.
+1. Prepare changes through a PR; agent peer review is optional. Update VERSION and its release notes for a new release; update the policy/trigger list when adding CI workflows.
 2. Merge only passing changes. The release gate waits for all required **main** checks, not merely PR checks.
 3. Confirm the published tag, manifest and assets on the GitHub Releases page. Verify downloaded files with `sha256sum -c SHA256SUMS` from the asset directory.
 

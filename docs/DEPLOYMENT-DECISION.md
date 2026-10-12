@@ -15,7 +15,8 @@ not a verified implementation or authorization to activate it.
   promise unlimited usage or 2,000 macOS minutes. Stop when allowances cannot
   support a build; do not silently enable payment.
 - Future mobile release workflows must be manual and main-only, use repository
-  secrets, and retain required checks, review and action-time approvals.
+  secrets, and retain required checks and action-time approvals. Agent peer review
+  is optional.
 - Credential entry and signing material require secure owner handling. Never
   paste secrets into repository files, chats, logs, commits or PRs.
 - Apple Developer Program membership remains required for App Store/TestFlight.
@@ -37,7 +38,7 @@ Choosing this architecture does not establish that signing identities,
 certificates/profiles, membership, repository secrets, main-only workflow guards,
 permissions, quota controls, workflows or deployments are ready. Record missing
 setup as owner actions rather than completed features. Existing deployment,
-migration and review safeguards remain in force.
+migration and permission safeguards remain in force; agent peer review is optional.
 
 This decision does not authorize merging, deploying, activating workflows,
 changing permissions or billing, configuring credentials, or releasing to a store.

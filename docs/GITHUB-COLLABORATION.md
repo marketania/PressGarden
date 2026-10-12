@@ -17,9 +17,10 @@ in normal English. List migrations, data-file changes, owner actions, tests and
 risks explicitly, including `None` where appropriate. Screenshots are required
 for UI changes; Arabic/mobile views apply only to relevant UI work.
 
-An agent merges only its own PR after required CI passes and the other agent
-reviews, unless the owner explicitly waives review. Action-time approvals still
-apply. This setup does not authorize any merge, migration, release or deployment.
+An agent merges only its own PR after required CI passes and existing permissions
+and server rules allow it. Claude/Codex peer review is optional for any PR, with
+no owner waiver needed to skip it. This guidance does not authorize unrelated
+merges, migrations, releases or deployments.
 
 ## Checks for this stack
 
@@ -58,15 +59,16 @@ Use these six repository labels:
 
 | Label | Meaning |
 |---|---|
-| `needs-review` | Awaiting the other agent's review |
+| `needs-review` | Optional peer review requested |
 | `needs-migration` | Authorized migration required before dependent deployment |
-| `ready-to-deploy` | Checks/review complete; deployment still needs authorization |
+| `ready-to-deploy` | Required checks complete; deployment still needs authorization |
 | `blocked-owner` | Owner approval, credential/account or platform action is blocked |
 | `codex` | Codex-authored work |
 | `claude` | Claude-authored work or requested Claude review |
 
-This setup PR is Codex-authored and requests Claude review: use `codex`,
-`needs-review` and `claude`. A label is coordination metadata, not authorization.
+Use `codex`/`claude` for agent attribution. Apply `needs-review` and a reviewer
+label only when optional peer review is requested. Labels do not grant
+authorization or create a required merge gate.
 
 ## Proposed required checks on main
 
@@ -106,6 +108,6 @@ URL and health results afterward. For a CLI release without a URL, record the
 release artifact/version and appropriate isolated smoke results instead of
 inventing a hosted endpoint. Production auto-deploy is not enabled.
 
-Owner actions: provide the other agent's review; resolve blocked environment or
+Owner actions: resolve blocked environment or
 account setup through approved channels; confirm current main protection, and give separate action-time approval for protection changes
 or any later production operation. No credentials or OAuth grants are created.
