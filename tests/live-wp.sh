@@ -80,6 +80,23 @@ case "$program" in
   rm -- "$site/wp-content/mu-plugins/press-family-ci-recreated.php"
   printf 'Regenerated transient: incomplete exit 2 verified; no false optimized claim.\n'
   find "$T/state/backups" -name '*.sql' | grep -q .
+  # Convert only this freshly generated disposable fixture to a network.
+  # Verify scope using real WordPress APIs without issuing a network cache purge.
+  wp core multisite-convert --path="$site" --title='Isolated Press network fixture' --quiet
+  rc=0
+  run db status a.example --blog=1 --tables=wp_users > "$T/network-table" 2>&1 || rc=$?
+  cat "$T/network-table"
+  [ "$rc" -eq 2 ]
+  grep -q 'network-global tables are outside per-blog maintenance scope' "$T/network-table"
+  run db status a.example --blog=1 --tables=wp_options
+  rc=0
+  run cache clear a.example > "$T/network-purge" 2>&1 || rc=$?
+  cat "$T/network-purge"
+  [ "$rc" -eq 2 ]
+  grep -q -- '--network' "$T/network-purge"
+  [ "$(wp eval-file "$REPO/lib/litespeed-purge-scope.php" blog 1 0 --path="$site" --skip-plugins --skip-themes --skip-packages --no-color)" = 'blog:1:1' ]
+  [ "$(wp eval-file "$REPO/lib/litespeed-purge-scope.php" all unused 1 --path="$site" --skip-plugins --skip-themes --skip-packages --no-color)" = 'network:1' ]
+  printf 'Real multisite: global-table refusal and explicit cache scope verified. No network purge issued.\n'
   ;;
  *)
   set +e;run inspect db a.example;rc=$?;set -e;[ "$rc" -le 1 ]

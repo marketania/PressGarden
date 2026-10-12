@@ -35,9 +35,13 @@ function pg_db_scope($tables,$blog) {
     $available=pg_db_rows("SELECT TABLE_NAME, ENGINE, DATA_LENGTH, INDEX_LENGTH, DATA_FREE FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_TYPE='BASE TABLE'");
     $map=[];foreach($available as $t){if(!isset($t['TABLE_NAME']))throw new RuntimeException('invalid table inventory');$map[$t['TABLE_NAME']]=$t;}
     $wanted=$tables===''?array_values($registered):explode(',',$tables);
+    // A primary blog shares the base prefix with network-global tables. Prefix
+    // matching alone must not authorize maintenance of those shared resources.
+    $global=is_multisite()?array_values($wpdb->tables('global',true)):[];
     $out=[];$prefix=$wpdb->prefix;
     foreach(array_unique($wanted) as $name) {
         pg_db_identifier($name);
+        if(in_array($name,$global,true))throw new RuntimeException('network-global tables are outside per-blog maintenance scope');
         if(strpos($name,$prefix)!==0)throw new RuntimeException('requested table is outside selected WordPress prefix');
         if(is_multisite()&&preg_match('/^'.preg_quote($prefix,'/').'[0-9]+_/',$name))throw new RuntimeException('requested table belongs to another blog');
         if(!isset($map[$name])) {
