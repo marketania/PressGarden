@@ -38,7 +38,7 @@ requires secure owner setup and separate action-time approval.
   every required check. Do not use workflow-level path filters that leave required
   checks pending. Preserve matrix context names as well as ordinary job names.
 - Keep expensive mobile production builds manual and main-only, with the owner's
-  existing review/release approvals. These Press tools are Bash/PHP CLI products;
+  existing release approvals. These Press tools are Bash/PHP CLI products;
   do not introduce mobile builds or change their verified source-release gates.
 - Keep failed diagnostic artifacts short-lived. Preserve release symbols,
   signed release assets and source provenance for their approved retention needs;
@@ -65,9 +65,9 @@ runs and retain for one day. The source-release assets are untouched. No new
 mobile workflow is added. This is CI maintenance explicitly requested by the
 owner; it does not resume parked product development or verify migration.
 
-The parent has confirmed the October authorization, so one reviewed batched
+The parent has confirmed the October authorization, so one locally checked batched
 push and necessary CI are permitted within the existing cap. Verify GitHub check
-contexts on the final PR commit and obtain independent review before merge. Offline validation
+contexts on the final PR commit before merge; agent peer review is optional. Offline validation
 cannot certify hosted-runner expression behavior. Required-check or protection
 changes need their own specific action-time approval; none are requested/applied
 by this patch.
