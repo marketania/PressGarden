@@ -6,7 +6,6 @@ never push that agent's branch. Remove the entry when the PR is merged.
 
 | Agent | Branch | Owned area | Status |
 |---|---|---|---|
-| Claude | `claude/ci-minutes-ibkv0u` | `.github/workflows/` CI trigger scope and concurrency | PR open |
 
 This is PressGarden, an independent Bash/PHP application. Runtime changes, client sites,
 production credentials and deployment infrastructure are outside this setup.
