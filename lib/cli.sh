@@ -1,5 +1,30 @@
-# Small terminal helpers shared by help and operation dashboards.
+# Terminal and configuration helpers shared by the CLI and operation dashboards.
 # This file has no discovery, state-directory or provider side effects.
+
+# Keep exported overrides byte-for-byte, including newline-separated exclusions.
+# Only names pass through line-oriented output; values come from Bash variables.
+pg_cli_save_environment() {
+  local key names
+  PG_CLI_ENV_KEYS=(); PG_CLI_ENV_VALUES=()
+  names=$(compgen -e)
+  while IFS= read -r key; do
+    [[ "$key" =~ ^PRESSGARDEN_[A-Za-z0-9_]*$ ]] || continue
+    [ "${!key+x}" = x ] || continue
+    PG_CLI_ENV_KEYS+=("$key"); PG_CLI_ENV_VALUES+=("${!key}")
+  done <<< "$names"
+}
+
+pg_cli_restore_environment() {
+  local i
+  for i in "${!PG_CLI_ENV_KEYS[@]}"; do
+    if ! printf -v "${PG_CLI_ENV_KEYS[$i]}" '%s' "${PG_CLI_ENV_VALUES[$i]}" || ! export "${PG_CLI_ENV_KEYS[$i]}"; then
+      printf 'Cannot restore exported PressGarden setting %s; operation refused.\n' "${PG_CLI_ENV_KEYS[$i]}" >&2
+      return 2
+    fi
+  done
+  unset PG_CLI_ENV_KEYS PG_CLI_ENV_VALUES
+}
+
 pg_color_init() {
   local mode="${PRESSGARDEN_COLOR:-auto}" enabled=0
   case "$mode" in auto|always|never) :;; *) printf 'Use --color=auto|always|never.\n' >&2; return 2;; esac

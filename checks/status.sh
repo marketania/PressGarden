@@ -6,11 +6,20 @@ require_wp; discover_sites
 pg_heading 'PRESSGARDEN · MAINTENANCE STATUS'
 printf '  %s selected site(s) · read-only inventory\n' "${#WP_SITES[@]}"
 failed=0
+theme_report=$(tmpf); theme_errors=$(tmpf)
+trap 'rm -f -- "$theme_report" "$theme_errors"' EXIT
 for site in "${WP_SITES[@]}"; do
   pg_heading "$(pg_display_text "$(site_label_from_root "$site")")"
   if ! wp core is-installed --path="$site" "${WPQ[@]}" >/dev/null 2>&1; then printf 'INCOMPLETE: WordPress bootstrap failed.\n'; failed=$((failed+1)); continue; fi
   printf 'Themes (active/inactive inventory, not security findings):\n'
-  wp theme list --fields=name,status,version --path="$site" "${WPQ[@]}" || failed=$((failed+1))
+  if wp theme list --fields=name,status,version --path="$site" "${WPQ[@]}" > "$theme_report" 2> "$theme_errors" \
+    && [ ! -s "$theme_errors" ] \
+    && php -d memory_limit=96M "$PRESSGARDEN_DIR/lib/litespeed-output.php" display "$theme_report" bounded; then
+    :
+  else
+    printf 'INCOMPLETE: theme inventory could not be read or safely displayed.\n'
+    failed=$((failed+1))
+  fi
   if [ -f "$site/wp-content/object-cache.php" ] && [ ! -L "$site/wp-content/object-cache.php" ]; then
     printf 'Object cache: drop-in present; provider connection/effectiveness not tested.\n'
   else printf 'Object cache: no regular drop-in observed.\n'; fi

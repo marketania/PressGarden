@@ -4,6 +4,7 @@ from pathlib import Path
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -16,6 +17,14 @@ from pathlib import Path
 raw=sys.argv[1:]
 args=[a for a in raw if not a.startswith('--path=') and not a.startswith('--skip-') and a!='--no-color']
 with open(os.environ['FIXTURE_CALLS'],'a') as f:f.write(json.dumps(raw)+'\n')
+if args[:2]==['core','is-installed']:sys.exit(0)
+if args[:2]==['plugin','is-installed']:sys.exit(1)
+if args[:2]==['theme','list']:
+ fault=os.environ.get('FIXTURE_THEME_FAULT')
+ if fault=='controls':print('fixture-theme\x1b[2J\u202e active 1.0');sys.exit(0)
+ if fault=='stderr':print('private-theme-fixture-output',file=sys.stderr);sys.exit(0)
+ if fault=='oversize':print('x'*4194305);sys.exit(0)
+ print('fixture-theme active 1.0');sys.exit(0)
 if args[:1]==['eval-file']:
  action=args[2]
  if action=='cleanup-report':
@@ -178,6 +187,14 @@ class CleanupCLI(unittest.TestCase):
             self.assertNotIn('private-fixture-provider-output', r.stdout + r.stderr)
             self.assertNotIn('\x1b', r.stdout)
 
+    def test_unselected_revisions_stay_unselected_when_database_is_incomplete(self):
+        self.env['FIXTURE_DB_FAULT'] = 'invalid'
+        self.env['COLUMNS'] = '80'
+        for flags, expected in [((), 'Rev -'), (('--revisions',), 'Rev ?')]:
+            r = self.cli('cleanup', '-db', *flags, 'example.test')
+            self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+            self.assertIn('Expired ? · ' + expected, r.stdout)
+
     def test_failed_backup_prevents_db_and_later_file_cleanup(self):
         self.env['FIXTURE_DB_FAULT'] = 'backup'
         r = self.cli('cleanup', '--execute', 'example.test')
@@ -220,11 +237,193 @@ class CleanupCLI(unittest.TestCase):
                      ('cleanup', '--logs', 'example.test', 'another.test'),
                      ('cleanup', 'status', '--execute', 'example.test'),
                      ('cleanup', 'preview', '--execute', '-logs', 'example.test'),
+                     ('cleanup', '--target', '--color=never', 'all'),
+                     ('cleanup', '--execute', '--target', '--color=never', 'all'),
                      ('update', '--bogus')]:
             r = self.cli(*args)
             self.assertEqual(r.returncode, 2, (args, r.stdout, r.stderr))
         self.assertFalse(self.calls.exists())
         self.assertFalse(self.mutation.exists())
+
+    def test_doctor_empty_or_fully_excluded_scope_is_incomplete(self):
+        empty = self.base / 'empty'
+        empty.mkdir()
+        r = self.cli('doctor', str(empty))
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn('No non-excluded WordPress installations', r.stdout)
+        self.env['PRESSGARDEN_EXCLUDE'] = 'example.test'
+        r = self.cli('doctor')
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn('Selected installations: 0', r.stdout)
+        self.assertFalse(self.calls.exists())
+
+    def test_doctor_accepts_named_target_and_rejects_duplicate_or_unknown_options(self):
+        r = self.cli('doctor', '--target', 'example.test')
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn('Selected installations: 1', r.stdout)
+        for args in [('doctor', '--target'), ('doctor', '--bogus'),
+                     ('doctor', '--target', 'example.test', 'all')]:
+            r = self.cli(*args)
+            self.assertEqual(r.returncode, 2, (args, r.stdout, r.stderr))
+        self.assertFalse(self.calls.exists())
+
+    def test_config_refuses_invalid_root_without_success_output(self):
+        link = self.base / 'linked'
+        link.symlink_to(self.base / 'fleet', target_is_directory=True)
+        self.env['PRESSGARDEN_SCAN_ROOT'] = str(link)
+        r = self.cli('config')
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn('symlink target component refused', r.stderr)
+        self.assertNotIn('Root:', r.stdout)
+
+    def test_invalid_config_is_not_partly_executed_or_used_for_dispatch(self):
+        config = self.base / 'broken-config'
+        sentinel = self.base / 'config-executed'
+        config.write_text('touch ' + shlex.quote(str(sentinel)) + '\nif then\n')
+        self.env['PRESSGARDEN_CONFIG_FILE'] = str(config)
+        for args in [('cleanup', '--execute'), ('status',), ('config',)]:
+            r = self.cli(*args)
+            self.assertEqual(r.returncode, 2, (args, r.stdout, r.stderr))
+            self.assertIn('Invalid shell syntax', r.stderr)
+        direct = subprocess.run(['bash', str(ROOT / 'checks/cleanup-all.sh'), 'preview', '--files'],
+                                env=self.env, text=True, capture_output=True, timeout=30)
+        self.assertEqual(direct.returncode, 2, direct.stdout + direct.stderr)
+        r = self.cli('config-new')
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertFalse(sentinel.exists())
+        self.assertFalse(self.calls.exists())
+        self.assertFalse(self.mutation.exists())
+        self.assertTrue((self.site / '.DS_Store').exists())
+
+    def test_config_source_failure_stops_entrypoint_and_internal_runner(self):
+        config = self.base / 'failed-config'
+        config.write_text('PRESSGARDEN_CLEANUP_DAYS=60\nreturn 7\n')
+        self.env['PRESSGARDEN_CONFIG_FILE'] = str(config)
+        r = self.cli('cleanup', '--execute')
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        direct = subprocess.run(['bash', str(ROOT / 'checks/cleanup-all.sh'), 'execute', '--files'],
+                                env=self.env, text=True, capture_output=True, timeout=30)
+        self.assertEqual(direct.returncode, 2, direct.stdout + direct.stderr)
+        self.assertIn('config failed to load', direct.stderr)
+        self.assertFalse(self.calls.exists())
+        self.assertFalse(self.mutation.exists())
+        self.assertTrue((self.site / '.DS_Store').exists())
+
+    def test_existing_invalid_config_file_type_never_uses_defaults(self):
+        directory = self.base / 'directory-config'
+        directory.mkdir()
+        dangling = self.base / 'dangling-config'
+        dangling.symlink_to(self.base / 'missing-config')
+        for config in [directory, dangling]:
+            self.env['PRESSGARDEN_CONFIG_FILE'] = str(config)
+            r = self.cli('cleanup', '--execute')
+            self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+            self.assertIn('not a readable regular file', r.stderr)
+            direct = subprocess.run(['bash', str(ROOT / 'checks/cleanup-all.sh'), 'execute', '--files'],
+                                    env=self.env, text=True, capture_output=True, timeout=30)
+            self.assertEqual(direct.returncode, 2, direct.stdout + direct.stderr)
+        self.assertFalse(self.calls.exists())
+        self.assertFalse(self.mutation.exists())
+        self.assertTrue((self.site / '.DS_Store').exists())
+
+    @unittest.skipIf(os.geteuid() == 0, 'Unreadable file behavior requires a nonroot account')
+    def test_unreadable_saved_config_never_uses_defaults(self):
+        config = self.base / 'unreadable-config'
+        config.write_text('PRESSGARDEN_SCAN_ROOT="/unreadable-config-must-not-run"\n')
+        config.chmod(0)
+        self.addCleanup(config.chmod, 0o600)
+        self.env['PRESSGARDEN_CONFIG_FILE'] = str(config)
+        r = self.cli('cleanup', '--execute')
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn('not a readable regular file', r.stderr)
+        direct = subprocess.run(['bash', str(ROOT / 'checks/cleanup-all.sh'), 'execute', '--files'],
+                                env=self.env, text=True, capture_output=True, timeout=30)
+        self.assertEqual(direct.returncode, 2, direct.stdout + direct.stderr)
+        self.assertFalse(self.calls.exists())
+        self.assertFalse(self.mutation.exists())
+        self.assertTrue((self.site / '.DS_Store').exists())
+
+    def test_valid_shell_config_and_exported_overrides_still_work(self):
+        config = self.base / 'valid-config'
+        config.write_text('garden_age() { printf 60; }\nPRESSGARDEN_CLEANUP_DAYS="$(garden_age)"\n'
+                          'PRESSGARDEN_SCAN_ROOT="/config-root-must-not-win"\n'
+                          'PRESSGARDEN_EXCLUDE="example.test"\n')
+        self.env['PRESSGARDEN_CONFIG_FILE'] = str(config)
+        self.env['PRESSGARDEN_EXCLUDE'] = ''
+        r = self.cli('cleanup', '-files')
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn('age: 60+ days', r.stdout)
+        self.env['PRESSGARDEN_CLEANUP_DAYS'] = '45'
+        r = self.cli('cleanup', '-files')
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn('age: 45+ days', r.stdout)
+
+    def test_exported_multiline_scan_root_is_refused_without_dispatch(self):
+        config = self.base / 'valid-config'
+        config.write_text('PRESSGARDEN_SCAN_ROOT=' + shlex.quote(str(self.base / 'fleet')) + '\n')
+        self.env['PRESSGARDEN_CONFIG_FILE'] = str(config)
+        for suffix in ['\ninvalid', '\n']:
+            self.env['PRESSGARDEN_SCAN_ROOT'] = str(self.base / 'fleet') + suffix
+            for args in [('cleanup',), ('cleanup', '--execute')]:
+                r = self.cli(*args)
+                self.assertEqual(r.returncode, 2, (args, r.stdout, r.stderr))
+            for action in ['preview', 'execute']:
+                direct = subprocess.run(['bash', str(ROOT / 'checks/cleanup-all.sh'), action],
+                                        env=self.env, text=True, capture_output=True, timeout=30)
+                self.assertEqual(direct.returncode, 2, direct.stdout + direct.stderr)
+        self.assertFalse(self.calls.exists())
+        self.assertFalse(self.mutation.exists())
+        self.assertFalse((self.base / 'state/backups').exists())
+        self.assertTrue((self.site / '.DS_Store').exists())
+
+    def test_exported_multiline_exclusions_preserve_every_site(self):
+        second = self.base / 'fleet/second.test/public_html'
+        included = self.base / 'fleet/included.test/public_html'
+        shutil.copytree(self.site, second)
+        shutil.copytree(self.site, included)
+        config = self.base / 'valid-config'
+        config.write_text('PRESSGARDEN_EXCLUDE="included.test"\n')
+        self.env['PRESSGARDEN_CONFIG_FILE'] = str(config)
+        self.env['PRESSGARDEN_EXCLUDE'] = 'example.test\nsecond.test\n'
+        commands = [(['bash', str(ROOT / 'pressgarden'), 'cleanup', '-db']),
+                    (['bash', str(ROOT / 'checks/cleanup-all.sh'), 'preview', '--db'])]
+        for command in commands:
+            r = subprocess.run(command, env=self.env, text=True, capture_output=True, timeout=30)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertIn('1 selected site(s)', r.stdout)
+            paths = [arg for row in self.call_rows() for arg in row if arg.startswith('--path=')]
+            self.assertEqual(paths, ['--path=' + str(included)])
+            self.calls.unlink()
+        self.assertFalse(self.mutation.exists())
+
+    def test_readonly_config_cannot_discard_exported_scope(self):
+        config = self.base / 'readonly-config'
+        config.write_text('readonly PRESSGARDEN_SCAN_ROOT=' + shlex.quote(str(self.site)) + '\n')
+        self.env['PRESSGARDEN_CONFIG_FILE'] = str(config)
+        r = self.cli('cleanup', '--execute')
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        direct = subprocess.run(['bash', str(ROOT / 'checks/cleanup-all.sh'), 'execute'],
+                                env=self.env, text=True, capture_output=True, timeout=30)
+        self.assertEqual(direct.returncode, 2, direct.stdout + direct.stderr)
+        self.assertIn('exported PressGarden setting', r.stderr + direct.stderr)
+        self.assertFalse(self.calls.exists())
+        self.assertFalse(self.mutation.exists())
+        self.assertTrue((self.site / '.DS_Store').exists())
+
+    def test_status_sanitizes_theme_controls_and_refuses_bad_output(self):
+        self.env['FIXTURE_THEME_FAULT'] = 'controls'
+        r = self.cli('status', 'example.test')
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn('\x1b', r.stdout)
+        self.assertNotIn('\u202e', r.stdout)
+        self.assertIn('fixture-theme', r.stdout)
+        for fault in ['stderr', 'oversize']:
+            self.env['FIXTURE_THEME_FAULT'] = fault
+            r = self.cli('status', 'example.test')
+            self.assertEqual(r.returncode, 2, (fault, r.stdout, r.stderr))
+            self.assertIn('INCOMPLETE: theme inventory', r.stdout)
+            self.assertNotIn('private-theme-fixture-output', r.stdout + r.stderr)
+            self.assertLess(len(r.stdout), 5000)
 
     def test_color_modes_and_no_color(self):
         self.assertNotIn('\x1b', self.cli('cleanup', '-files').stdout)
@@ -257,6 +456,15 @@ class CleanupCLI(unittest.TestCase):
         self.assertLess(len(short.stdout.splitlines()), len(full.stdout.splitlines()))
         self.assertNotIn('litespeed AREA', short.stdout)
         self.assertIn('litespeed AREA', full.stdout)
+
+    def test_help_topics_are_focused_and_do_not_bootstrap_wordpress(self):
+        expected = {'db': 'db ACTION', 'cache': 'cache ACTION', 'status': 'Read-only checks'}
+        for topic, heading in expected.items():
+            r = self.cli('help', topic)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertIn(heading, r.stdout)
+            self.assertNotIn('litespeed AREA', r.stdout)
+        self.assertFalse(self.calls.exists())
 
     def test_status_shortcuts_preserve_database_action(self):
         for verb, expected in [('status', 'status'), ('check', 'check')]:

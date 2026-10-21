@@ -100,7 +100,7 @@ for site in "${WP_SITES[@]}"; do
   if [ "$database" = 1 ]; then
     rc=0
     if ! command -v wp >/dev/null 2>&1; then
-      problem=1; expired='?'; revision_count='?'; messages+=('DB unavailable: install WP-CLI or select only file categories.')
+      problem=1; expired='?'; [ "$revisions" = 0 ] || revision_count='?'; messages+=('DB unavailable: install WP-CLI or select only file categories.')
     else
       wp eval-file "$PRESSGARDEN_DIR/lib/database.php" cleanup-report "$tables" "$blog" 0 "$revisions" "$days" '' --path="$site" "${WPQ[@]}" > "$db_report" 2> "$errors" || rc=$?
       if [ "$rc" -eq 0 ] && [ ! -s "$errors" ] && values=$(php "$PRESSGARDEN_DIR/lib/cleanup-summary.php" db "$db_report" 2>/dev/null); then
@@ -108,7 +108,7 @@ for site in "${WP_SITES[@]}"; do
         total_expired=$((total_expired+expired)); total_revisions=$((total_revisions+revision_count))
         [ "$expired" -eq 0 ] && [ "$revision_count" -eq 0 ] || pending=1
         [ "$revisions" = 1 ] || revision_count='-'
-      else problem=1; expired='?'; revision_count='?'; messages+=('DB inspection incomplete: check WP-CLI/bootstrap, selected tables and --blog=ID for multisite.'); fi
+      else problem=1; expired='?'; [ "$revisions" = 0 ] || revision_count='?'; messages+=('DB inspection incomplete: check WP-CLI/bootstrap, selected tables and --blog=ID for multisite.'); fi
     fi
   fi
   if [ "$problem" = 1 ]; then status=INCOMPLETE; failed=$((failed+1))

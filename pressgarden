@@ -40,17 +40,16 @@ fi
 
 # Preserve explicitly exported PressGarden/API values so one-shot environment
 # overrides win over persistent config values.
-_pg_env_overrides=$(env | grep -E '^(PRESSGARDEN_[A-Za-z0-9_]*)=' || true)
-[ -r "$CONFIG_FILE" ] && . "$CONFIG_FILE"
-if [ -n "$_pg_env_overrides" ]; then
-  while IFS='=' read -r _pg_k _pg_v; do
-    case "$_pg_k" in PRESSGARDEN_*) printf -v "$_pg_k" '%s' "$_pg_v"; export "$_pg_k" ;; esac
-  done <<< "$_pg_env_overrides"
+. "$PRESSGARDEN_DIR/lib/cli.sh"
+pg_cli_save_environment
+if [ -e "$CONFIG_FILE" ] || [ -L "$CONFIG_FILE" ]; then
+  [ -f "$CONFIG_FILE" ] && [ -r "$CONFIG_FILE" ] || { printf 'PressGarden config is not a readable regular file; no operation dispatched.\n' >&2; exit 2; }
+  bash -n "$CONFIG_FILE" >/dev/null 2>&1 || { printf 'Invalid shell syntax in PressGarden config. Fix the saved config; config-new can compare option names without loading it.\n' >&2; exit 2; }
+  . "$CONFIG_FILE" || { printf 'PressGarden config failed to load; no operation dispatched.\n' >&2; exit 2; }
 fi
-unset _pg_env_overrides _pg_k _pg_v 2>/dev/null || true
+pg_cli_restore_environment || exit 2
 export PRESSGARDEN_PORTABLE
 
-. "$PRESSGARDEN_DIR/lib/cli.sh"
 # Color is a presentation option and never a site/category selector. A target
 # value is kept intact so '--target --color=never' remains an invalid target.
 _pg_args=(); _pg_target_value=0
@@ -131,6 +130,66 @@ Missing providers or failed scans show INCOMPLETE, with exit 2.
 EOF
     return 0
   fi
+  if [ "$topic" = status ]; then
+    cat <<'EOF'
+
+Read-only checks
+  status [target]          Theme/object-cache inventory and LiteSpeed DB counters
+  status -db [target]      Native database table inventory
+  status -cache [target]   LiteSpeed cache configuration
+  check -db [target]       Explicit native database CHECK
+  doctor [target]          Local dependencies and site-discovery diagnostics
+
+Use --target SITE instead of a positional target when preferred. Native DB
+checks also accept --blog=ID and --tables=NAME,... with -db. Status does not
+prove cache effectiveness or malware clearance. Unavailable providers are labeled.
+For possible cleanup work, run cleanup [target] to preview eligible items.
+EOF
+    return 0
+  fi
+  if [ "$topic" = db ]; then
+    cat <<'EOF'
+
+db ACTION [options] [target]
+  status      Inventory WordPress-registered tables
+  check       Read-only table CHECK
+  cleanup     Preview expired transients; add --execute to delete them
+  optimize    Check, back up, optimize and verify supported tables
+  repair      Back up and repair only eligible unhealthy tables
+
+Scope: --target SITE, --blog=ID (required for multisite), --tables=NAME,...
+Cleanup: --execute, --revisions (explicit opt-in), --older-than=DAYS
+Mutations require private SQL backups and confirmation. Native per-blog
+operations exclude network/global tables; explicit tables must belong to the site.
+
+Examples
+  pressgarden status -db example.com
+  pressgarden check -db example.com
+  pressgarden cleanup -db --revisions --older-than=60 example.com
+EOF
+    return 0
+  fi
+  if [ "$topic" = cache ]; then
+    cat <<'EOF'
+
+cache ACTION [target]
+  status      Inspect LiteSpeed cache configuration (read-only)
+  clear       Purge the selected cache after confirmation
+  enable      Enable the existing LiteSpeed cache setting
+  disable     Disable the existing LiteSpeed cache setting
+
+Only LiteSpeed Cache is supported; it must already be installed and active.
+Configuration status does not prove an HTTP cache HIT or backend connectivity.
+On multisite, clear requires --blog=ID for one blog or --network for an explicit
+whole-network purge. Use --target SITE instead of a positional target if needed.
+
+Examples
+  pressgarden status -cache example.com
+  pressgarden cache clear --blog=2 example.com
+  pressgarden cache clear --network example.com
+EOF
+    return 0
+  fi
   cat <<EOF
 
 Usage: pressgarden COMMAND [arguments] [website|directory|all]
@@ -159,13 +218,14 @@ No malware scanner, threat feeds, quarantine or sibling application is required.
 EOF
 }
 show_config() {
-  local state cache
+  local state cache root
   if [ "$PRESSGARDEN_PORTABLE" = 1 ]; then
     state="${PRESSGARDEN_STATE_DIR:-$PRESSGARDEN_DIR/var}"; cache="${PRESSGARDEN_CACHE_DIR:-$PRESSGARDEN_DIR/var/cache}"
   else
     state="${PRESSGARDEN_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/pressgarden}"; cache="${PRESSGARDEN_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/pressgarden}"
   fi
-  printf 'PressGarden v%s\nProgram: %s\nConfig: %s\nRoot: %s\nState: %s\nCache: %s\nInteractive: %s\n' "$VERSION" "$PRESSGARDEN_DIR" "$CONFIG_FILE" "$(resolve_root '')" "$state" "$cache" "${PRESSGARDEN_INTERACTIVE:-1}"
+  root=$(resolve_root '') || return 2
+  printf 'PressGarden v%s\nProgram: %s\nConfig: %s\nRoot: %s\nState: %s\nCache: %s\nInteractive: %s\n' "$VERSION" "$PRESSGARDEN_DIR" "$CONFIG_FILE" "$root" "$state" "$cache" "${PRESSGARDEN_INTERACTIVE:-1}"
   printf 'Cleanup age (days): %s\nCache provider: LiteSpeed (only implemented provider)\n' "${PRESSGARDEN_CLEANUP_DAYS:-30}"
 }
 # Parse targeting independently from provider operands; preserve an explicit
@@ -401,7 +461,8 @@ case "$cmd" in
       all) exec bash "$PRESSGARDEN_DIR/checks/status.sh";;
     esac;;
   doctor)
-    select_target "$@" || exit 2
+    operation_args "$@" || exit 2
+    [ "${#OP_ARGS[@]}" -eq 0 ] || { printf 'Use doctor [target] or doctor --target SITE.\n' >&2; exit 2; }
     exec bash "$PRESSGARDEN_DIR/checks/doctor.sh" ;;
   db)
     action="${1:-status}"; [ "$#" -gt 0 ] && shift || true

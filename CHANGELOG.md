@@ -2,6 +2,10 @@
 
 ## Unreleased — consolidated commands and readable cleanup
 
+- Rewrite the README around installation from selected source, site discovery, a first-site preview, everyday commands, result meanings and recovery. Distinguish this review checkout from published v0.1.1 and the rolling main installer/updater.
+- Refuse malformed or failed saved configuration before command dispatch, report empty doctor scopes and invalid config roots as incomplete, and accept consistent named doctor targets.
+- Preserve exported configuration values exactly, including multiline exclusions; never truncate invalid scan roots or silently discard an override blocked by a readonly saved setting.
+- Add focused database/cache/status help, safely bound theme inventory output, and keep unselected revision counts distinct from failed database measurements.
 - Consolidate routine cleanup into a preview of disposable metadata, old rotated logs, generated development caches and expired DB transients. Add combinable `-db`, `-files`, `-logs` and `-development` selectors, `--execute` and bounded `--verbose` details. Explicit revision/target/backup/confirmation safeguards remain.
 - Replace repeated zero-result paragraphs with a colored fleet table and measured totals. Treat unavailable providers and invalid responses as incomplete. Escape terminal controls in displayed labels and details.
 - Add brief everyday help, `help all` and `help cleanup`, status area shortcuts, explicit cache blog/network selectors, and stdout-aware color controls. Ensure command help and invalid update arguments cannot start an update.
