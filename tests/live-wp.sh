@@ -54,8 +54,48 @@ case "$program" in
   wp option add _transient_timeout_press_fixture 100 --path="$site"
   run db cleanup a.example
   [ "$(wp option get _transient_press_fixture --path="$site")" = harmless ]
+  # Real connection fingerprints must be stable, but distinguish the two
+  # disposable databases even though their WordPress table names are identical.
+  identity_a=$(wp eval-file "$REPO/lib/database.php" identity '' '' 0 0 30 '' --path="$site" --skip-plugins --skip-themes --skip-packages --no-color)
+  identity_b=$(wp eval-file "$REPO/lib/database.php" identity '' '' 0 0 30 '' --path="$other" --skip-plugins --skip-themes --skip-packages --no-color)
+  [[ "$identity_a" =~ ^[a-f0-9]{64}$ ]] && [[ "$identity_b" =~ ^[a-f0-9]{64}$ ]]
+  [ "$identity_a" != "$identity_b" ]
+  [ "$identity_a" = "$(wp eval-file "$REPO/lib/database.php" identity '' '' 0 0 30 '' --path="$site" --skip-plugins --skip-themes --skip-packages --no-color)" ]
+  table_plan=$(wp eval-file "$REPO/lib/database.php" plan '' '' 0 0 30 '' --path="$site" --skip-plugins --skip-themes --skip-packages --no-color)
+  table_digest=$(printf '%s' "$table_plan" | sha256sum | awk '{print $1}')
+  rc=0
+  wp eval-file "$REPO/lib/database.php" cleanup '' '' 1 0 30 "$table_digest:$identity_b" --path="$site" --skip-plugins --skip-themes --skip-packages --no-color > "$T/stale-db-plan" 2>&1 || rc=$?
+  [ "$rc" -eq 2 ]
+  grep -q 'database identity changed' "$T/stale-db-plan"
+  [ "$(wp option get _transient_press_fixture --path="$site")" = harmless ]
+  printf 'Real connection identity: stale same-table plan refused before deleting the fixture transient.\n'
   run db cleanup a.example --execute
   if wp option get _transient_press_fixture --path="$site" >/dev/null 2>&1;then echo 'Expired transient remained' >&2;exit 1;fi
+  # Exercise the unified command against real files and the real selected DB.
+  # Preview must leave all candidates intact; execution must preserve active
+  # logs and the other fixture site's data while retaining recovery copies.
+  wp option add _transient_press_combined harmless --path="$site" --quiet
+  wp option add _transient_timeout_press_combined 100 --path="$site" --quiet
+  wp option add _transient_press_combined untouched --path="$other" --quiet
+  wp option add _transient_timeout_press_combined 100 --path="$other" --quiet
+  printf 'benign metadata fixture\n' > "$site/.DS_Store"
+  printf 'benign rotated log fixture\n' > "$site/press-fixture.log.1"
+  printf 'active log fixture\n' > "$site/press-fixture.log"
+  touch -d '60 days ago' "$site/.DS_Store" "$site/press-fixture.log.1" "$site/press-fixture.log"
+  run cleanup --target a.example > "$T/combined-preview"
+  cat "$T/combined-preview"
+  grep -q 'READY' "$T/combined-preview"
+  [ -f "$site/.DS_Store" ] && [ -f "$site/press-fixture.log.1" ]
+  [ "$(wp option get _transient_press_combined --path="$site")" = harmless ]
+  run cleanup --execute --target a.example > "$T/combined-execute"
+  cat "$T/combined-execute"
+  grep -q 'COMPLETE' "$T/combined-execute"
+  [ ! -e "$site/.DS_Store" ] && [ ! -e "$site/press-fixture.log.1" ]
+  [ -f "$site/press-fixture.log" ]
+  if wp option get _transient_press_combined --path="$site" >/dev/null 2>&1;then echo 'Combined cleanup left expired transient' >&2;exit 1;fi
+  [ "$(wp option get _transient_press_combined --path="$other")" = untouched ]
+  find "$T/state/backups/file-cleanup" -name 'manifest.json' | grep -q .
+  printf 'Unified cleanup: read-only preview, real SQL/file execution, active-log preservation and other-site isolation verified.\n'
   wp plugin install litespeed-cache --activate --path="$site" --quiet
   run litespeed status a.example
   run cache disable a.example
@@ -80,6 +120,23 @@ case "$program" in
   rm -- "$site/wp-content/mu-plugins/press-family-ci-recreated.php"
   printf 'Regenerated transient: incomplete exit 2 verified; no false optimized claim.\n'
   find "$T/state/backups" -name '*.sql' | grep -q .
+  # Convert only this freshly generated disposable fixture to a network.
+  # Verify scope using real WordPress APIs without issuing a network cache purge.
+  wp core multisite-convert --path="$site" --title='Isolated Press network fixture' --quiet
+  rc=0
+  run db status a.example --blog=1 --tables=wp_users > "$T/network-table" 2>&1 || rc=$?
+  cat "$T/network-table"
+  [ "$rc" -eq 2 ]
+  grep -q 'network-global tables are outside per-blog maintenance scope' "$T/network-table"
+  run db status a.example --blog=1 --tables=wp_options
+  rc=0
+  run cache clear a.example > "$T/network-purge" 2>&1 || rc=$?
+  cat "$T/network-purge"
+  [ "$rc" -eq 2 ]
+  grep -q -- '--network' "$T/network-purge"
+  [ "$(wp eval-file "$REPO/lib/litespeed-purge-scope.php" blog 1 0 --path="$site" --skip-plugins --skip-themes --skip-packages --no-color)" = 'blog:1:1' ]
+  [ "$(wp eval-file "$REPO/lib/litespeed-purge-scope.php" all unused 1 --path="$site" --skip-plugins --skip-themes --skip-packages --no-color)" = 'network:1' ]
+  printf 'Real multisite: global-table refusal and explicit cache scope verified. No network purge issued.\n'
   ;;
  *)
   set +e;run inspect db a.example;rc=$?;set -e;[ "$rc" -le 1 ]
@@ -90,7 +147,7 @@ case "$program" in
 esac
 [ "$otherhash" = "$(sha256sum "$other/wp-config.php" | awk '{print $1}')" ]
 # Invalid names never fall back to the unrelated fixture.
-set +e;run doctor nonexistent.example >/dev/null 2>&1;rc=$?;set -e;[ "$rc" -eq 2 ]
+rc=0;run doctor nonexistent.example >/dev/null 2>&1 || rc=$?;[ "$rc" -eq 2 ]
 printf '\n%s live WordPress / MySQL fixture integration PASS\n' "$product"
 wp core version --path="$site"
 wp --info

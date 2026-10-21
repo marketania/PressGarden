@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased — consolidated commands and readable cleanup
+
+- Consolidate routine cleanup into a preview of disposable metadata, old rotated logs, generated development caches and expired DB transients. Add combinable `-db`, `-files`, `-logs` and `-development` selectors, `--execute` and bounded `--verbose` details. Explicit revision/target/backup/confirmation safeguards remain.
+- Replace repeated zero-result paragraphs with a colored fleet table and measured totals. Treat unavailable providers and invalid responses as incomplete. Escape terminal controls in displayed labels and details.
+- Add brief everyday help, `help all` and `help cleanup`, status area shortcuts, explicit cache blog/network selectors, and stdout-aware color controls. Ensure command help and invalid update arguments cannot start an update.
+- Reuse the existing PR #9 and #8 cleanup snapshot, DB identity, multisite and LiteSpeed output protections on the current main branch. No version, release or production operation is implied.
+
+## Unreleased — cleanup preservation and snapshot refinement
+
+- Safely bound and escape LiteSpeed provider responses, reject unsafe option-readback files, and distinguish output failures from command completion. Add 13 inert output/readback methods.
+
+- Integrate the multisite table/cache scope safeguards with cleanup snapshot/evidence preservation.
+- Bind native database mutations to the selected table plan and connected/configured database identity; refuse changes around backup or final execution even when table names match.
+- Add inert race regressions and real disposable WordPress/MySQL identity mismatch coverage without changing public CLI syntax.
+
+- Inspect complete eligible files for executable-like markers under bounded streaming limits; do not treat a benign prefix as clearance.
+- Preserve IDE/project settings and named recovery/evidence directories; narrow development cleanup to generated caches.
+- Confirm actual candidates before execution, reject changed snapshots and record backup/removal progress in private manifests.
+- Add real-file and terminal regressions plus exact attribution/link/artwork preservation checks. No release is published.
+
 ## 0.1.1 — 2026-09-24
 
 - Explicitly empty or invalid `sites` directory arguments now stop with exit 2 instead of falling back to fleet inventory.

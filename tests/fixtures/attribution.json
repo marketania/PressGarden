@@ -1,0 +1,28 @@
+{
+  "product": "PressGarden",
+  "files": {
+    "LICENSE": "7c5654e169385c8ccfa9caf58efb309fc8b5e2fb4a2b27c152101deb70fd6039",
+    "PROVENANCE.md": "17ece63234117beac3e7dbb50d76d44b92ff73c04053881d5cfaa5f550276a5e",
+    "docs/assets/press-tool-family.webp": "b233844db9fa3ba73b9478b3617ca3bcb080988cc2d081faa71523da8d2f4110"
+  },
+  "lines": {
+    "LICENSE": [
+      "Copyright (c) 2026 Mustafa Sharif / Marketania",
+      "The above copyright notice and this permission notice shall be included in all",
+      "AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER"
+    ],
+    "PROVENANCE.md": [
+      "Original repository: `marketania/PressWarden`. Original MIT copyright is retained in LICENSE."
+    ],
+    "README.md": [
+      "- **[PressWarden](https://github.com/marketania/PressWarden)** — WordPress security auditing, malware and vulnerability detection, compromise investigation, integrity checks, and incident response.",
+      "- **[PressHarden](https://github.com/marketania/PressHarden)** — WordPress hardening, security policy, `wp-config.php` controls, PHP posture, locking, and update preferences."
+    ],
+    "SECURITY.md": [
+      "Report security defects privately to the maintainer, Mustafa Sharif / Marketania, through a verified private channel. Do not post credentials, real SQL dumps, config backups or client findings in public issues."
+    ],
+    "install.sh": [
+      "    \"https://github.com/marketania/PressGarden/archive/refs/heads/main.tar.gz\" -o \"$WORK/source.tar.gz\""
+    ]
+  }
+}

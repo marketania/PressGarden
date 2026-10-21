@@ -63,11 +63,8 @@ PRESSGARDEN_EXCLUDE="${PRESSGARDEN_EXCLUDE:-${PRESSGARDEN_EXCLUDE_DOMAINS:-}}"
 (umask 077; mkdir -p "$PRESSGARDEN_CACHE_DIR") 2>/dev/null || true
 export LC_ALL=C
 
-if { [ -n "${PRESSGARDEN_FORCE_COLOR:-}" ] || [ -t 1 ] || [ -t 2 ]; } && [ -z "${PRESSGARDEN_NOCOLOR:-}" ] && [ "${TERM:-dumb}" != dumb ]; then
-  B=$'\033[1m'; D=$'\033[2m'; U=$'\033[4m'; R=$'\033[31m'; G=$'\033[32m'; Y=$'\033[33m'; BL=$'\033[34m'; M=$'\033[35m'; C=$'\033[36m'; WHT=$'\033[37m'; X=$'\033[0m'
-else
-  B=''; D=''; U=''; R=''; G=''; Y=''; BL=''; M=''; C=''; WHT=''; X=''
-fi
+. "$PRESSGARDEN_DIR/lib/cli.sh"
+pg_color_init || exit 2
 _cols=$(tput cols 2>/dev/null || printf '92'); case "$_cols" in ''|*[!0-9]*) _cols=92 ;; esac; [ "$_cols" -lt 68 ] && _cols=68; [ "$_cols" -gt 108 ] && _cols=108; W=$_cols; unset _cols
 TOTAL=0; ALERTS=0; REVIEWS=0; DELETED=0; PROTECTED_SKIPPED=0; SECN=0; T0=$(date +%s); SEC_T0=$T0
 NAME="${NAME:-check}"; DESC="${DESC:-}"; CURRENT_SECTION=""; SCAN_DOES="${SCAN_DOES:-}"; SCAN_WHY="${SCAN_WHY:-}"

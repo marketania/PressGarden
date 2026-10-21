@@ -3,9 +3,10 @@ set -uo pipefail
 . "$(cd "$(dirname "$0")/.." && pwd)/lib/_lib.sh"
 action="${1:-preview}"; shift || true
 case "$action" in status|preview|execute) :;; *) exit 2;; esac
-days="${PRESSGARDEN_CLEANUP_DAYS:-30}"; logs=0; development=0
+days="${PRESSGARDEN_CLEANUP_DAYS:-30}"; logs=0; development=0; metadata=()
 for arg in "$@"; do case "$arg" in
   --older-than=*) days=${arg#*=};; --logs) logs=1;; --development) development=1;;
+  --no-metadata) metadata=(no-metadata);;
   *) printf 'Unknown cleanup option: %s\n' "$arg" >&2; exit 2;; esac
 done
 [[ "$days" =~ ^[1-9][0-9]{0,4}$ ]] || exit 2
@@ -13,7 +14,7 @@ done
 discover_sites
 if [ "$action" = execute ]; then
   php "$PRESSGARDEN_DIR/lib/ops-safety.php" scope "$PRESSGARDEN_STATE_DIR" "${WP_SITES[@]}" || exit 2
-  pg_confirm "Back up then remove old disposable files on ${#WP_SITES[@]} selected site(s)? Current logs and application code remain untouched." || exit 1
+  # Each site confirms its exact in-memory candidate preview inside cleanup.php.
 fi
 # Excluded children are traversal boundaries, never cleanup targets.
 sites_json=$(php -r 'echo json_encode(array_slice($argv,1));' "${WP_SITES[@]}" "${MANUAL_EXCLUDED_ROOTS[@]}") || exit 2
@@ -22,7 +23,7 @@ for site in "${WP_SITES[@]}"; do
   pg_unlock_site
   if [ "$action" = execute ]; then pg_lock_site "$site" || { failed=$((failed+1)); continue; }; fi
   printf '\n%s\n' "$(site_label_from_root "$site")"; rc=0
-  php "$PRESSGARDEN_DIR/lib/cleanup.php" "$action" "$PRESSGARDEN_STATE_DIR" "$site" "$days" "$logs" "$development" v1 "$sites_json" || rc=$?
+  php "$PRESSGARDEN_DIR/lib/cleanup.php" "$action" "$PRESSGARDEN_STATE_DIR" "$site" "$days" "$logs" "$development" v1 "$sites_json" "${metadata[@]}" || rc=$?
   case "$rc" in 0) completed=$((completed+1));; 1) review=$((review+1));; *) failed=$((failed+1));; esac
 done
 pg_unlock_site

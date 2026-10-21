@@ -19,6 +19,23 @@ PressGarden is part of the **Press Tool Family**. Other standalone tools are ava
 
 Use PressGarden when you need to **maintain, clean, optimize, and manage WordPress performance safely**. The sibling tools are independent applications, not required dependencies.
 
+## Start with a maintenance preview
+
+After installation, replace the example path with one staging WordPress directory:
+
+```bash
+./pressgarden help
+./pressgarden sites /absolute/path/to/staging-wordpress
+./pressgarden cleanup preview /absolute/path/to/staging-wordpress
+```
+
+The cleanup preview covers disposable files, old rotated logs, generated
+development caches and expired database transients. It does not delete website
+files or database rows. Use `cleanup -files` for a filesystem-only preview that
+does not need WP-CLI. It can create private toolkit state. Database and cache
+operations retain their separate scope and recovery checks.
+See the [refinement checkpoint](docs/REFINEMENT.md) for the tested boundaries.
+
 ## Install this distribution
 
 **Production runtime:** use an upstream-supported, security-patched PHP version. PHP 8.2–8.5 are supported at the September 2026 audit date; retained PHP 7.4 syntax tests are not a recommendation to deploy end-of-life PHP.
@@ -40,6 +57,57 @@ Remote installer example above replaces only your downloaded installer file; do 
 For a user-wide symlink, set `PRESSGARDEN_INSTALL_MODE=user` instead of a portable prefix. Existing installation destinations are refused; use their `update` command. The independent installer validates archive paths, identity and syntax; it never downloads the sibling tools.
 
 ## Commands
+
+Start with these everyday commands; `help all` retains the full advanced list.
+The existing database and LiteSpeed commands continue to work.
+
+```bash
+./pressgarden status example.com
+./pressgarden status -db example.com
+./pressgarden cleanup example.com
+./pressgarden cleanup -db example.com
+./pressgarden cleanup -files -logs --verbose example.com
+./pressgarden cleanup --execute example.com
+./pressgarden help cleanup
+```
+
+`cleanup` selects all supported routine categories by default and previews them
+in one fleet table. `-db`, `-files`, `-logs` and `-development` (also accepted with
+two dashes) select only those categories; combine them as needed. The table shows
+verified file counts/logical bytes, expired transient counts, optional revision
+counts and retained review items, with **CLEAR**, **READY**, **REVIEW** or
+**INCOMPLETE** status. A missing WP-CLI or failed database bootstrap is incomplete,
+not zero work. `--verbose` shows bounded file details. Use `--execute` or the
+existing `execute` action to apply; backups and confirmations still run.
+Narrow terminals and long site labels use compact two-line rows, keeping the
+full site name and labeled counts. Wide terminals retain the table; `COLUMNS`
+can set the display width explicitly.
+
+Revision deletion remains explicitly opt-in through `--revisions`. Database
+options `--blog=ID`, `--tables=...` and `--revisions` require the `-db` selector
+when category filters are present. Multisite still needs an explicit blog.
+Table optimization/repair, cache purges, active logs and all-transient deletion
+are outside routine cleanup. An expanded default cleanup is intentional:
+scripts that previously wanted metadata only should now pass `--files`.
+
+`status -db` shows the native inventory; `check -db` performs the existing native
+table check. `status -cache` shows the existing LiteSpeed configuration. Use
+`cache clear --blog=ID` for a selected multisite blog or `cache clear --network`
+for a deliberate network purge; unscoped multisite purges remain refused.
+
+Color is automatic on terminal stdout. Redirected output stays plain even if
+stderr is a terminal. `NO_COLOR` and `PRESSGARDEN_NOCOLOR` disable color, including
+explicit color requests. `TERM=dumb` disables automatic color;
+`--color=always` explicitly enables it otherwise, and `--color=never` or
+`--no-color` explicitly disable it. Status words remain readable without color.
+`help`, command `--help` and `help all` never dispatch maintenance or updates.
+
+The following capture uses isolated reserved-domain fixtures, including a
+deliberately unavailable provider; it is not a client-site report.
+
+![Unified cleanup preview showing clear, ready, review and incomplete fixture results](docs/assets/cli-cleanup-preview.png)
+
+Advanced examples:
 
 ```bash
 ./pressgarden status example.com
@@ -76,7 +144,7 @@ Configuration is trusted shell input. Keep it administrator-owned and mode 600. 
 
 `db status` inventories selected table engines and allocation estimates. `db check` is read-only and never triggers repair/optimization. `db optimize` checks a table, runs OPTIMIZE only on a successful check, then verifies CHECK again. `db repair` skips healthy tables; only MyISAM/ARCHIVE/CSV repair is supported. Unsupported storage-engine CHECK/REPAIR responses are not classified as corruption. InnoDB repair is **not** invented via ALTER/recreate.
 
-By default, native operations address WordPress-registered tables, not every table sharing the database. Explicit additional tables can be selected with `--tables=wp_example,wp_other` only within the selected installation's prefix. Multisite requires `--blog=ID`; native per-blog operations exclude network/global tables. A changed table plan aborts rather than broadening scope.
+By default, native operations address WordPress-registered tables, not every table sharing the database. Explicit additional tables can be selected with `--tables=wp_example,wp_other` only within the selected installation's prefix. Multisite requires `--blog=ID`; native per-blog operations exclude network/global tables. A changed table plan aborts rather than broadening scope. Native database mutations also bind the plan to a private connection fingerprint, checked before and after backup and again in the mutation process. A changed database, configured connection, or prefix is refused; these checks are not an atomic snapshot or protection against every external writer.
 
 Every native repair/optimize/cleanup execution and advanced LiteSpeed DB mutation requires a private SQL export before writes. Exports have checksums; this is **not a restore test or a guarantee of a transactionally consistent MyISAM backup**. The native dump is table-scoped. LiteSpeed's dump covers the configured database, including all network tables, because the provider can operate across the network; it can contain other data in a shared database. Protect it and obtain a host snapshot before high-risk maintenance. SQL exports require sufficient filesystem space and the WP-CLI database client dependencies.
 
@@ -105,11 +173,35 @@ Sensitive option output is redacted; account/CDN mutation responses are withheld
 
 In intentional automation, permanent image-backup removal also requires `PRESSGARDEN_LITESPEED_DESTRUCTIVE=1`; support report upload requires `PRESSGARDEN_LITESPEED_EXTERNAL=1`. These are not enabled by default. Database-family calls still execute inside the WordPress directory without standard WP-CLI global flags, as required by LiteSpeed.
 
+### Multisite cache scope
+
+On WordPress multisite, LiteSpeed's upstream `purge all` affects every site in
+the network. `cache clear` therefore refuses multisite instead of silently
+broadening a selected installation into a network-wide purge. For one existing,
+active blog in the selected network, use the advanced command:
+
+```bash
+./pressgarden litespeed purge blog 1 --target example.com
+```
+
+Only an intentional **whole-network purge** should use:
+
+```bash
+./pressgarden litespeed purge all --network --target example.com
+```
+
+Scope is shown before confirmation and rechecked under the site writer lock.
+Missing/inactive blogs, foreign-network IDs, unreadable scope, and changed scope
+are refused. Single-site `cache clear` keeps its existing behavior. These checks
+load trusted WordPress code; they are not a sandbox or proof of HTTP cache
+behavior. Native per-blog database operations also refuse WordPress-reported
+network-global tables, even if explicitly requested under the primary prefix.
+
 ## Conservative filesystem cleanup
 
-`cleanup status|preview` never deletes. `cleanup execute` backs up every candidate and verifies copies before removal. Default candidates are old filesystem metadata such as `.DS_Store`, `Thumbs.db`, AppleDouble files and `.LSOverride`; optional `--development` includes recognized generated/development metadata, and `--logs` includes **old rotated logs only**. Current `debug.log`, `error_log`, application code, plugin/theme source trees, VCS directories, hardlinks and symlinks are not cleanup targets. Empty generated directories may remain.
+`cleanup status|preview` never deletes. `cleanup execute` backs up every candidate and verifies copies before removal. Default candidates are old filesystem metadata such as `.DS_Store`, `Thumbs.db`, AppleDouble files and `.LSOverride`; optional `--development` includes recognized generated caches, not IDE or project configuration, and `--logs` includes **old rotated logs only**. Current `debug.log`, `error_log`, application code, plugin/theme source trees, VCS directories, hardlinks and symlinks are not cleanup targets. Empty generated directories may remain.
 
-Scans are bounded at 200,000 entries, 24 levels, 1,000 candidates, and 64 MiB per file. Executable-like content in a candidate stops deletion for that installation. This heuristic is not malware clearance; run PressWarden for a suspected compromise. Cleanup backups use an indexed manifest under `state/backups/file-cleanup/`; do not blindly restore over changed files. Removed logical file bytes are **not net disk space reclaimed**, since recovery copies are retained.
+Scans are bounded at 200,000 entries, 24 levels, 1,000 candidates, and 64 MiB per file. Candidate content is streamed in full under a 256 MiB per-site budget. Execution confirms the actual preview, and changed file snapshots refuse deletion. Named backup/evidence directories are preserved. See [cleanup safety and recovery](docs/CLEANUP-SAFETY.md). Executable-like content in a candidate stops deletion for that installation. This heuristic is not malware clearance; run PressWarden for a suspected compromise. Cleanup backups use an indexed manifest under `state/backups/file-cleanup/`; do not blindly restore over changed files. Removed logical file bytes are **not net disk space reclaimed**, since recovery copies are retained.
 
 ## Safety and automation
 

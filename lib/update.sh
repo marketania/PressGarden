@@ -47,6 +47,7 @@ _pg_update_fetch_archive() {
 
 _pg_update_validate_source() {
   local src="$1" list f version
+  local -a required_helpers=()
   for f in checks lib tests config; do
     [ -d "$src/$f" ] && [ ! -L "$src/$f" ] || { printf "Update validation failed: required directory %s is missing.\n" "$f" >&2; return 2; }
   done
@@ -56,6 +57,11 @@ _pg_update_validate_source() {
   [ -s "$src/VERSION" ] || { printf 'Update validation failed: VERSION is missing.\n' >&2; return 2; }
   [ -s "$src/pressgarden" ] || { printf 'Update validation failed: pressgarden CLI is missing.\n' >&2; return 2; }
   [ -s "$src/lib/_lib.sh" ] || { printf 'Update validation failed: runtime library is missing.\n' >&2; return 2; }
+  if grep -Fq 'lib/cli.sh' "$src/pressgarden"; then required_helpers+=(lib/cli.sh); fi
+  if grep -Fq 'checks/cleanup-all.sh' "$src/pressgarden"; then required_helpers+=(checks/cleanup-all.sh lib/cleanup-summary.php); fi
+  for f in "${required_helpers[@]}"; do
+    [ -s "$src/$f" ] && [ ! -L "$src/$f" ] || { printf 'Update validation failed: required helper %s is missing.\n' "$f" >&2; return 2; }
+  done
 
   [ "$(cat "$src/PRODUCT" 2>/dev/null)" = "PressGarden" ] || { printf "Update identity mismatch.\n" >&2; return 2; }
   version=$(tr -d '[:space:]' < "$src/VERSION" 2>/dev/null || true)

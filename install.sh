@@ -163,6 +163,14 @@ fi
 for item in "$PROGRAM" install.sh uninstall.sh lib/_lib.sh config/config.example VERSION; do
   [ -s "$SRC/$item" ] && [ ! -L "$SRC/$item" ] || { printf 'Missing/unsafe source file: %s\n' "$item" >&2; exit 2; }
 done
+# Require newly referenced helpers without preventing an older self-contained
+# distribution from being deliberately installed for recovery.
+required_helpers=()
+if grep -Fq 'lib/cli.sh' "$SRC/$PROGRAM"; then required_helpers+=(lib/cli.sh); fi
+if grep -Fq 'checks/cleanup-all.sh' "$SRC/$PROGRAM"; then required_helpers+=(checks/cleanup-all.sh lib/cleanup-summary.php); fi
+for item in "${required_helpers[@]}"; do
+  [ -s "$SRC/$item" ] && [ ! -L "$SRC/$item" ] || { printf 'Missing/unsafe source helper: %s\n' "$item" >&2; exit 2; }
+done
 php -r 'require $argv[1];pg_ops_path($argv[2]);' "$SRC/lib/ops-safety.php" "$DEST"
 [ ! -e "$DEST" ] && [ ! -L "$DEST" ] || { echo 'Destination exists. Use its update command; installation will not overwrite it.' >&2; exit 2; }
 PARENT=$(dirname "$DEST")
