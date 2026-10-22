@@ -33,7 +33,12 @@ set -- "${args[@]}"
 
 case "${1:-}" in
   eval-file)
-    case "${2:-}" in */litespeed-secret-command.php) :;; *) exit 97;; esac
+    case "${2:-}" in
+      */litespeed-purge-scope.php)
+        if [ "${3:-}" = blog ]; then printf 'blog:1:%s\n' "${4:-1}"; else printf 'single:1\n'; fi
+        exit 0 ;;
+      */litespeed-secret-command.php) :;; *) exit 97;;
+    esac
     printf '%s\n' "$*" > "$p/.last-command"; echo Success
     ;;
   db)

@@ -35,9 +35,13 @@ function pg_db_scope($tables,$blog) {
     $available=pg_db_rows("SELECT TABLE_NAME, ENGINE, DATA_LENGTH, INDEX_LENGTH, DATA_FREE FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_TYPE='BASE TABLE'");
     $map=[];foreach($available as $t){if(!isset($t['TABLE_NAME']))throw new RuntimeException('invalid table inventory');$map[$t['TABLE_NAME']]=$t;}
     $wanted=$tables===''?array_values($registered):explode(',',$tables);
+    // A primary blog shares the base prefix with network-global tables. Prefix
+    // matching alone must not authorize maintenance of those shared resources.
+    $global=is_multisite()?array_values($wpdb->tables('global',true)):[];
     $out=[];$prefix=$wpdb->prefix;
     foreach(array_unique($wanted) as $name) {
         pg_db_identifier($name);
+        if(in_array($name,$global,true))throw new RuntimeException('network-global tables are outside per-blog maintenance scope');
         if(strpos($name,$prefix)!==0)throw new RuntimeException('requested table is outside selected WordPress prefix');
         if(is_multisite()&&preg_match('/^'.preg_quote($prefix,'/').'[0-9]+_/',$name))throw new RuntimeException('requested table belongs to another blog');
         if(!isset($map[$name])) {
@@ -48,17 +52,61 @@ function pg_db_scope($tables,$blog) {
     }
     if(!$out)throw new RuntimeException('no selected WordPress tables');ksort($out);return $out;
 }
+/** Fingerprint the active database, export configuration and selected prefix.
+ * This is change detection, not authentication or an atomic cross-process lock.
+ * Never include credentials, identifiers or raw provider errors in public output.
+ */
+function pg_db_identity() {
+    global $wpdb;
+    foreach(['DB_NAME','DB_HOST','DB_USER'] as $key) {
+        if(!defined($key)||!is_string(constant($key))||constant($key)===''||strlen(constant($key))>4096)
+            throw new RuntimeException('database export identity is unavailable');
+    }
+    $rows=pg_db_rows('SELECT DATABASE() AS database_name, @@hostname AS server_hostname, @@port AS server_port');
+    if(count($rows)!==1)throw new RuntimeException('connected database identity is unavailable');
+    $row=$rows[0];
+    foreach(['database_name','server_hostname','server_port'] as $key) {
+        if(!isset($row[$key])||!is_scalar($row[$key])||(string)$row[$key]===''||strlen((string)$row[$key])>4096)
+            throw new RuntimeException('invalid connected database identity');
+    }
+    if(!hash_equals(DB_NAME,(string)$row['database_name']))
+        throw new RuntimeException('connected database differs from configured export database; no maintenance authorized');
+    pg_db_identifier($wpdb->prefix);
+    $json=json_encode([DB_NAME,DB_HOST,DB_USER,(string)$row['database_name'],(string)$row['server_hostname'],(string)$row['server_port'],$wpdb->prefix]);
+    if($json===false)throw new RuntimeException('database identity could not be encoded');
+    return hash('sha256',$json);
+}
+function pg_db_guard($csv,$expected,$mutation) {
+    if($expected==='') {
+        if($mutation)throw new RuntimeException('database mutation requires a verified table and connection plan');
+        return;
+    }
+    $parts=explode(':',$expected);
+    if(count($parts)>2||!preg_match('/^[a-f0-9]{64}$/D',$parts[0])||!hash_equals($parts[0],hash('sha256',$csv)))
+        throw new RuntimeException('table scope changed after preflight; operation refused');
+    if($mutation&&count($parts)!==2)throw new RuntimeException('database identity gate missing; operation refused');
+    if(count($parts)===2&&(!preg_match('/^[a-f0-9]{64}$/D',$parts[1])||!hash_equals($parts[1],pg_db_identity())))
+        throw new RuntimeException('database identity changed after preflight; no maintenance performed');
+}
 function pg_db_allocation(array $tables){$n=0;foreach($tables as $t)$n+=(int)$t['DATA_LENGTH']+(int)$t['INDEX_LENGTH'];return $n;}
 function pg_db_expired_count($options) {
-    global $wpdb;$rows=pg_db_rows($wpdb->prepare('SELECT COUNT(*) AS n FROM '.pg_db_identifier($options).' WHERE option_name LIKE %s AND CAST(option_value AS UNSIGNED) > 0 AND CAST(option_value AS UNSIGNED) < %d',$wpdb->esc_like('_transient_timeout_').'%',time()));return (int)$rows[0]['n'];
+    global $wpdb;$rows=pg_db_rows($wpdb->prepare('SELECT COUNT(*) AS n FROM '.pg_db_identifier($options).' WHERE option_name LIKE %s AND CAST(option_value AS UNSIGNED) > 0 AND CAST(option_value AS UNSIGNED) < %d',$wpdb->esc_like('_transient_timeout_').'%',time()));
+    if(count($rows)!==1||!isset($rows[0]['n'])||(!is_int($rows[0]['n'])&&!is_string($rows[0]['n']))||
+        !preg_match('/^(?:0|[1-9][0-9]{0,9})$/D',(string)$rows[0]['n']))throw new RuntimeException('expired transient count is unavailable');
+    return (int)$rows[0]['n'];
 }
-function pg_db_cleanup(array $scope,$execute,$revisions,$days) {
+function pg_db_cleanup(array $scope,$execute,$revisions,$days,$report=false) {
     global $wpdb;$options=$wpdb->options;$posts=$wpdb->posts;
     if(!isset($scope[$options]))throw new RuntimeException('cleanup requires the selected options table');
     $expired=pg_db_expired_count($options);$candidates=[];
     if($revisions) {
         if(!isset($scope[$posts]))throw new RuntimeException('revision cleanup requires the selected posts table');
         $candidates=pg_db_rows($wpdb->prepare('SELECT ID FROM '.pg_db_identifier($posts).' WHERE post_type=%s AND post_modified_gmt < %s ORDER BY ID LIMIT 1001','revision',gmdate('Y-m-d H:i:s',time()-$days*86400)));
+    }
+    if($report) {
+        if($execute)throw new RuntimeException('cleanup report is read-only');
+        echo json_encode(['format'=>'PGDBCL1','expired'=>$expired,'revisions'=>count($candidates)],JSON_THROW_ON_ERROR),"\n";
+        return 0;
     }
     echo "Expired transient timeout rows observed: $expired\n";
     echo 'Eligible revision candidates observed (bounded at 1001): '.count($candidates)."\n";
@@ -76,11 +124,16 @@ function pg_db_run(array $args) {
     global $wpdb;
     if(count($args)!==7)throw new RuntimeException('invalid database operation arguments');
     list($action,$tables,$blog,$execute,$revisions,$days,$expected)=$args;
-    if(!in_array($action,['plan','status','check','repair','optimize','cleanup'],true))throw new RuntimeException('unknown database action');
+    if(!in_array($action,['identity','plan','status','check','repair','optimize','cleanup','cleanup-report'],true))throw new RuntimeException('unknown database action');
+    if(!in_array($execute,['0','1'],true)||!in_array($revisions,['0','1'],true))throw new RuntimeException('invalid database flags');
+    if($action==='cleanup-report'&&$execute!=='0')throw new RuntimeException('cleanup report is read-only');
     if(!preg_match('/^[1-9][0-9]{0,4}$/D',$days))throw new RuntimeException('invalid retention days');
     $scope=pg_db_scope($tables,$blog);$csv=implode(',',array_keys($scope));
+    if($action==='identity'){echo pg_db_identity(),"\n";return 0;}
     if($action==='plan'){echo $csv,"\n";return 0;}
-    if($expected!==''&&!hash_equals($expected,hash('sha256',$csv)))throw new RuntimeException('table scope changed after preflight; operation refused');
+    $mutation=in_array($action,['repair','optimize'],true)||($action==='cleanup'&&$execute==='1');
+    pg_db_guard($csv,$expected,$mutation);
+    if($action==='cleanup-report')return pg_db_cleanup($scope,false,$revisions==='1',(int)$days,true);
     echo 'Selected tables: '.count($scope)."\n";$before=pg_db_allocation($scope);
     echo "Selected allocation before (engine estimate, bytes): $before\n";
     if($action==='status'){foreach($scope as $name=>$t)echo $name.' | '.$t['ENGINE'].' | overhead estimate '.(int)$t['DATA_FREE']." bytes\n";echo "Status inventories storage; it is not a corruption check.\n";return 0;}

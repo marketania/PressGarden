@@ -1,5 +1,6 @@
 <?php
 // Unit/contract fixtures only. No real WordPress site/database is reachable.
+define('DB_NAME','fixture_db');define('DB_HOST','fixture_host');define('DB_USER','fixture_user');
 define('PG_DATABASE_TEST',true);define('ARRAY_A','ARRAY_A');require __DIR__.'/../lib/database.php';
 $n=0;function check($ok,$label){global $n;$n++;if(!$ok)throw new RuntimeException($label);}
 foreach(['OK'=>'OK','Table is already up to date'=>'OK',"The storage engine for the table doesn't support check"=>'UNSUPPORTED','Table is marked as crashed'=>'CORRUPT'] as $text=>$want)check(pg_db_result([['Msg_type'=>'status','Msg_text'=>$text]])===$want,'result '.$text);
@@ -15,6 +16,7 @@ class FixtureDB {
  function esc_like($s){return addcslashes($s,'_%\\');}
  function prepare($sql,...$args){foreach($args as $arg){$sql=preg_replace('/%[sd]/',is_int($arg)?(string)$arg:"'".str_replace("'","''",$arg)."'",$sql,1);}return $sql;}
  function get_results($sql,$fmt){$this->sql[]=$sql;
+  if(strpos($sql,'SELECT DATABASE()')===0)return [['database_name'=>'fixture_db','server_hostname'=>'fixture_host','server_port'=>'3306']];
   if(strpos($sql,'information_schema')!==false){$r=[];foreach(['wp_options','wp_posts','foreign_data','wp_custom'] as $name)$r[]=['TABLE_NAME'=>$name,'ENGINE'=>$this->engine,'DATA_LENGTH'=>1024,'INDEX_LENGTH'=>512,'DATA_FREE'=>0];return $r;}
   if(strpos($sql,'CHECK TABLE')===0)return [['Msg_type'=>'status','Msg_text'=>$this->state]];
   if(strpos($sql,'OPTIMIZE TABLE')===0||strpos($sql,'REPAIR TABLE')===0)return [['Msg_type'=>'status','Msg_text'=>'OK']];
@@ -26,7 +28,7 @@ class FixtureDB {
 }
 $wpdb=new FixtureDB();$scope=pg_db_scope('','');check(array_keys($scope)===['wp_options','wp_posts'],'registered tables only');check(count(pg_db_scope('wp_custom',''))===1,'explicit plugin table');
 $caught=false;try{pg_db_scope('foreign_data','');}catch(Throwable $e){$caught=true;}check($caught,'foreign DB table isolation');
-function run($action,$execute='0',$revisions='0') {ob_start();$rc=pg_db_run([$action,'','',''.$execute,$revisions,'30','']);$text=ob_get_clean();return [$rc,$text];}
+function run($action,$execute='0',$revisions='0') {$expected=$execute==='1'?hash('sha256',implode(',',array_keys(pg_db_scope('','')))).':'.pg_db_identity():'';ob_start();$rc=pg_db_run([$action,'','',''.$execute,$revisions,'30',$expected]);$text=ob_get_clean();return [$rc,$text];}
 $wpdb->sql=[];list($rc,$text)=run('check');check($rc===0,'check success');check(!preg_grep('/^(?:REPAIR|OPTIMIZE|DELETE)/',$wpdb->sql),'check never mutates');
 $wpdb->state="The storage engine for the table doesn't support check";list($rc,$text)=run('check');check($rc===0&&strpos($text,'UNSUPPORTED')!==false,'engine limits are informational');
 $wpdb->state='OK';$wpdb->sql=[];list($rc,$text)=run('optimize','1');check($rc===0&&substr_count($text,'VERIFIED OPTIMIZE')===2,'optimize and postcheck');
@@ -36,4 +38,7 @@ $wpdb->state='OK';$wpdb->sql=[];list($rc,$text)=run('cleanup');check($rc===0&&!p
 list($rc,$text)=run('cleanup','1','1');check($rc===0&&strpos($text,'affected-row count): 4')!==false,'cleanup affected rows');
 $caught=false;try{pg_db_run(['optimize','','','1','0','30','bad-plan']);}catch(Throwable $e){$caught=true;}check($caught,'table plan mismatch prevents mutation');
 $multi=true;$caught=false;try{pg_db_scope('','');}catch(Throwable $e){$caught=true;}check($caught,'multisite requires explicit blog');
+$multi=false;$wpdb->expired='not-a-count';$caught=false;try{pg_db_expired_count('wp_options');}catch(Throwable $e){$caught=true;}check($caught,'malformed transient count is not silently zero');
+$wpdb->expired=2;list($rc,$text)=run('cleanup-report');$report=json_decode($text,true);check($rc===0&&$report===['format'=>'PGDBCL1','expired'=>2,'revisions'=>0],'strict read-only cleanup summary');
+$caught=false;try{pg_db_run(['cleanup-report','','','1','0','30','']);}catch(Throwable $e){$caught=true;}check($caught,'summary cannot authorize mutation');
 echo "Native DB contract: $n assertions PASS\n";

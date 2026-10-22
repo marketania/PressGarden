@@ -69,7 +69,7 @@ class PublicBoundaries(unittest.TestCase):
         self.assertNotIn(str(child),r.stdout)
         self.assertIn(str(self.site),r.stdout)
         if PRODUCT=='PressGarden':
-            r=self.run_cli('cleanup','execute',self.site)
+            r=self.run_cli('cleanup','execute','--files',self.site)
             self.assertEqual(r.returncode,0,r.stdout+r.stderr)
             self.assertTrue((child/'.DS_Store').is_file())
             self.assertFalse((self.site/'.DS_Store').exists())
@@ -99,7 +99,7 @@ class PublicBoundaries(unittest.TestCase):
         self.env[PREFIX+'_EXCLUDE']='alpha.example/shop'
         original=(child/'.DS_Store').read_bytes()
         for action in ['preview','execute']:
-            r=self.run_cli('cleanup',action,'alpha.example')
+            r=self.run_cli('cleanup',action,'--files','alpha.example')
             self.assertEqual(r.returncode,0,r.stdout+r.stderr)
             self.assertNotIn('CANDIDATE shop/',r.stdout)
             self.assertEqual((child/'.DS_Store').read_bytes(),original)
@@ -109,7 +109,7 @@ class PublicBoundaries(unittest.TestCase):
     def test_cleanup_fleet_keeps_absolute_child_exclusion(self):
         child=self.site/'shop';self.make_site(child)
         self.env[PREFIX+'_EXCLUDE']=str(child)
-        r=self.run_cli('cleanup','execute','all')
+        r=self.run_cli('cleanup','execute','--files','all')
         self.assertEqual(r.returncode,0,r.stdout+r.stderr)
         self.assertTrue((child/'.DS_Store').exists())
         self.assertFalse((self.site/'.DS_Store').exists())
