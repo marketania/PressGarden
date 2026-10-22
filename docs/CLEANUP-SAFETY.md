@@ -4,8 +4,8 @@ The filesystem engine described here is used by `cleanup -files`, `cleanup -logs
 and `cleanup -development`, which can be combined. File-only selections do not
 bootstrap WordPress. The default unified `cleanup` additionally previews expired
 DB transients through WP-CLI; this bootstrap executes trusted WordPress code.
-The current review branch incorporates PR #8/#9's database/cache scope safeguards.
-No sibling dependency, runtime AI, version bump or release is introduced.
+Version 0.1.2 incorporates PR #8/#9's database/cache scope safeguards.
+No sibling dependency or runtime AI is introduced.
 
 ## Safe first use
 
@@ -89,7 +89,8 @@ original credits, link markup, provenance, license and approved logo.
 
 Run `bash tests/run.sh` and consult exact-head PR CI for current evidence. This
 checkpoint does not certify every host, database, provider, or recovery situation.
-The broader refinement brief and unmerged PR #8 require separate acceptance.
+See the [0.1.2 release notes](releases/0.1.2.md) for the combined changes. Validate
+scope and recovery in the intended hosting environment before production use.
 
 ## Primary sources and decisions
 

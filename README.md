@@ -24,18 +24,16 @@ caching plugins automatically.
 
 ## Which version does this guide describe?
 
-This guide describes the **unmerged, unreleased review checkout in
-[PR #15](https://github.com/marketania/PressGarden/pull/15)**. At this review date
-(2026-10-21), the latest published stable release is
-[v0.1.1](https://github.com/marketania/PressGarden/releases/tag/v0.1.1).
-That release predates the unified cleanup selectors, new fleet display, and
-help changes described below. Use a published release's own bundled help and
-README when running that release.
+This guide describes **PressGarden 0.1.2**, including unified cleanup selectors,
+the colored fleet display, and grouped help. See the
+[0.1.2 release notes](docs/releases/0.1.2.md) for the changes. Existing users can
+follow [Update and uninstall](#update-and-uninstall), then check
+`./pressgarden version` and `./pressgarden help`.
 
-The review checkout still reports version `0.1.1`; the version number alone does
-not identify these changes. Keep track of the source checkout or archive you
-installed. See [Releases](https://github.com/marketania/PressGarden/releases) for
-published archives and their checksums, source metadata, and release notes.
+Keep track of the source checkout or archive you installed. See
+[Releases](https://github.com/marketania/PressGarden/releases) for published
+archives and their checksums, source metadata, and release notes. Older releases
+have their own bundled help and README.
 
 ## Install a selected distribution
 
@@ -56,9 +54,10 @@ review the [public-readiness and rollout checklist](docs/PUBLIC-READINESS.md)
 before fleet use.
 
 **Recommended: install from the local distribution you deliberately selected.**
-For the commands in this guide, use this review checkout. For a published
-version, first download and verify its release archive, extract it, and use its
-bundled instructions. From the directory containing `PRODUCT`, `pressgarden`,
+Download `PressGarden-0.1.2.tar.gz`, `SHA256SUMS`, and `SOURCE.json` from the
+[v0.1.2 release](https://github.com/marketania/PressGarden/releases/tag/v0.1.2).
+Verify the archive against the checksums, extract it, and review its source and
+`install.sh`. From the extracted directory containing `PRODUCT`, `pressgarden`,
 and `install.sh`:
 
 ```bash
@@ -76,9 +75,9 @@ validates it, and creates a separate portable installation with a private config
 It does not overwrite an existing installation or download a sibling tool.
 
 The alternative source shortcut is `curl -fsSLo install.sh https://raw.githubusercontent.com/marketania/PressGarden/main/install.sh` followed by `bash install.sh`.
-That shortcut fetches the moving **`main` branch**, not a selected release tag,
-and does not include an unmerged review branch. Download it into a fresh working
-directory, rather than overwriting an installer in a checkout you are reviewing.
+That shortcut fetches the moving **`main` branch**. Download it into a fresh
+working directory, rather than overwriting an installer in a checkout you are
+reviewing. Use the selected-distribution method above to install a specific release.
 The portable local-source path above is the recommended path for this guide.
 
 ## Choose your sites and configuration
@@ -330,18 +329,28 @@ coordinate every external writer or sibling tool.
 
 ## Update and uninstall
 
+Finish other operations, then run these commands from your installed PressGarden
+directory:
+
+```bash
+./pressgarden update
+./pressgarden version
+./pressgarden config-new
+```
+
+The updater preserves private configuration and state. `config-new` previews any
+missing configuration options for you to review.
+
+Without an override, the updater follows moving `main`. To select this release
+explicitly, use `PRESSGARDEN_REF=v0.1.2 ./pressgarden update`. Git checkouts are
+refused by the program updater; maintain them through Git review. The updater
+retains a program recovery backup. See [update and recovery details](docs/UPDATING.md).
+
 `./pressgarden update` targets `marketania/PressGarden`, never a sibling and never threat feeds. For isolated validation or recovery, test/update with a local validated distribution archive:
 
 ```bash
 PRESSGARDEN_UPDATE_ARCHIVE=/absolute/path/PressGarden.tar.gz ./pressgarden update
 ```
-
-Without a local archive, the updater defaults to the moving `main` ref, not the
-latest published release. It does not fetch this unmerged review branch by
-default. Git checkouts are refused by the program updater; maintain them through
-Git review. The updater preserves private configuration/state and retains a
-program recovery backup. Stop other operations before updating and read
-[update and recovery details](docs/UPDATING.md).
 
 `./uninstall.sh` confirms removal of managed program files only; saved config,
 backups, and state remain. `--yes` is the explicit noninteractive alternative,
