@@ -5,11 +5,6 @@ owned area per agent/task. Resolve overlap through comments on the owning PR;
 never push that agent's branch. Remove the entry when the PR is merged.
 
 
-## Active work
-
-- `claude/project-thread-kwdhal` (Claude): manual `backups prune` retention.
-  Owns `lib/backup-retention.php`, the `backups` command and related docs/tests.
-
 ## Publication handoff — 0.1.2
 
 The owner authorized publication on 2026-10-21. PR #15 consolidates unified
