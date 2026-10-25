@@ -24,9 +24,9 @@ caching plugins automatically.
 
 ## Which version does this guide describe?
 
-This guide describes **PressGarden 0.1.2**, including unified cleanup selectors,
+This guide describes **PressGarden 0.1.3**, including unified cleanup selectors,
 the colored fleet display, and grouped help. See the
-[0.1.2 release notes](docs/releases/0.1.2.md) for the changes. Existing users can
+[0.1.3 release notes](docs/releases/0.1.3.md) for the changes. Existing users can
 follow [Update and uninstall](#update-and-uninstall), then check
 `./pressgarden version` and `./pressgarden help`.
 
@@ -54,8 +54,8 @@ review the [public-readiness and rollout checklist](docs/PUBLIC-READINESS.md)
 before fleet use.
 
 **Recommended: install from the local distribution you deliberately selected.**
-Download `PressGarden-0.1.2.tar.gz`, `SHA256SUMS`, and `SOURCE.json` from the
-[v0.1.2 release](https://github.com/marketania/PressGarden/releases/tag/v0.1.2).
+Download `PressGarden-0.1.3.tar.gz`, `SHA256SUMS`, and `SOURCE.json` from the
+[v0.1.3 release](https://github.com/marketania/PressGarden/releases/tag/v0.1.3).
 Verify the archive against the checksums, extract it, and review its source and
 `install.sh`. From the extracted directory containing `PRODUCT`, `pressgarden`,
 and `install.sh`:
@@ -356,7 +356,7 @@ The updater preserves private configuration and state. `config-new` previews any
 missing configuration options for you to review.
 
 Without an override, the updater follows moving `main`. To select this release
-explicitly, use `PRESSGARDEN_REF=v0.1.2 ./pressgarden update`. Git checkouts are
+explicitly, use `PRESSGARDEN_REF=v0.1.3 ./pressgarden update`. Git checkouts are
 refused by the program updater; maintain them through Git review. The updater
 retains a program recovery backup. See [update and recovery details](docs/UPDATING.md).
 
