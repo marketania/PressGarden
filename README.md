@@ -307,7 +307,13 @@ No `PRESSWARDEN_*` compatibility variables are consumed.
 State/backups must stay outside website roots. Cleanup recovery copies and their
 manifests live under `state/backups/file-cleanup/`; SQL exports live under
 `state/backups/database/`, where `state` means the effective state directory.
-Backups are never automatically pruned. After interruption, inspect the manifest,
+Backups are never automatically pruned. `backups prune --older-than=DAYS`
+previews old backups and deletes nothing; add `--apply` to remove exactly the
+previewed set after confirmation. Only file-cleanup backups with status
+`COMPLETED` and database dumps whose checksum still verifies are eligible. The
+newest backup per site and category is always kept, other categories are
+listed for manual handling, and each removal is appended to
+`state/backups/prune-log.tsv`. After interruption, inspect the manifest,
 source files, and recovery copies before retrying or restoring; do not overwrite
 newer site data blindly. See [cleanup recovery](docs/CLEANUP-SAFETY.md).
 

@@ -203,6 +203,7 @@ Usage: pressgarden COMMAND [arguments] [website|directory|all]
   litespeed status [target]
   litespeed AREA ACTION ... --target SITE   Advanced LiteSpeed management
   litespeed-db status|optimize [target]     Verified LiteSpeed DB dashboard counters
+  backups prune --older-than=DAYS [--apply]  Preview/remove old complete backups
   sites [directory] / doctor [target]
   config / config-new / update / version / help
 
@@ -305,6 +306,45 @@ select_target() {
   export ROOT PRESSGARDEN_DIR
 }
 
+
+# Manual backup retention for this tool's private state only. Preview by
+# default; --apply removes exactly the previewed backups after confirmation.
+pg_backups_prune() {
+  local state days='' apply=0 arg preview list kind id extra n=0 total=0 kept=0 rc
+  for arg in "$@"; do
+    case "$arg" in
+      --older-than=*) days=${arg#*=} ;;
+      --apply) apply=1 ;;
+      *) printf 'Usage: ./pressgarden backups prune --older-than=DAYS [--apply]\n' >&2; return 2 ;;
+    esac
+  done
+  [[ "$days" =~ ^[1-9][0-9]{0,4}$ ]] || { printf 'Usage: ./pressgarden backups prune --older-than=DAYS [--apply]\n' >&2; return 2; }
+  command -v php >/dev/null 2>&1 || { printf 'Backup retention requires PHP CLI.\n' >&2; return 2; }
+  if [ "$PRESSGARDEN_PORTABLE" = 1 ]; then state="${PRESSGARDEN_STATE_DIR:-$PRESSGARDEN_DIR/var}"
+  else state="${PRESSGARDEN_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/pressgarden}"; fi
+  preview=$(mktemp "${TMPDIR:-/tmp}/pressgarden-prune.XXXXXX") || return 2
+  list=$(mktemp "${TMPDIR:-/tmp}/pressgarden-prune-ids.XXXXXX") || { rm -f -- "$preview"; return 2; }
+  php "$PRESSGARDEN_DIR/lib/backup-retention.php" preview "$state" "$days" > "$preview" || { rm -f -- "$preview" "$list"; return 2; }
+  printf 'PressGarden backup retention preview (older than %s days; newest per site and category kept)\n' "$days"
+  while IFS=$'\t' read -r kind id extra; do
+    case "$kind" in
+      ELIGIBLE) n=$((n+1)); total=$((total+extra)); printf '  PRUNE  %s  %s bytes\n' "$id" "$extra"; printf '%s\n' "$id" >> "$list" ;;
+      KEPT) kept=$((kept+1)); printf '  KEEP   %s  %s\n' "$id" "$extra" ;;
+    esac
+  done < "$preview"
+  rm -f -- "$preview"
+  printf 'Eligible: %s backup(s), %s logical bytes. Kept: %s.\n' "$n" "$total" "$kept"
+  if [ "$apply" -ne 1 ] || [ "$n" -eq 0 ]; then
+    [ "$n" -eq 0 ] || printf 'PREVIEW: nothing deleted. Add --apply to remove these backups after confirmation.\n'
+    rm -f -- "$list"; return 0
+  fi
+  # shellcheck disable=SC1091
+  . "$PRESSGARDEN_DIR/lib/operations.sh"
+  pg_confirm "Permanently delete $n backup(s)? Removed backups cannot be used for recovery" || { rm -f -- "$list"; return 1; }
+  php "$PRESSGARDEN_DIR/lib/backup-retention.php" apply "$state" "$days" "$list"; rc=$?
+  rm -f -- "$list"
+  return "$rc"
+}
 
 cmd="${1:-help}"; [ "$#" -gt 0 ] && shift || true
 case "$cmd" in
@@ -487,6 +527,9 @@ case "$cmd" in
     fi
     operation_args "$@" || exit 2
     exec bash "$PRESSGARDEN_DIR/checks/cleanup-all.sh" "$action" "${OP_ARGS[@]}" ;;
+  backups)
+    [ "${1:-}" = prune ] || { printf 'Usage: ./pressgarden backups prune --older-than=DAYS [--apply]\n' >&2; exit 2; }
+    shift; pg_backups_prune "$@"; exit $? ;;
   database)
     printf 'PressGarden has no top-level "database" command.\n' >&2
     printf 'Use pressgarden db check|repair|optimize|cleanup [target] for native SQL maintenance.\n' >&2

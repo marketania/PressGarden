@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Add `backups prune --older-than=DAYS [--apply]` for PressGarden's own private
+  backups. Preview by default; only completed file-cleanup backups and
+  checksum-verified database dumps are eligible; the newest backup per site and
+  category is kept; the previewed set must match exactly; removals are logged.
+  Reported bytes are logical, not net disk space reclaimed.
+
 ## 0.1.2 — 2026-10-21
 
 ### Consolidated commands and readable cleanup
