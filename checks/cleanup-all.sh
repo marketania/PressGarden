@@ -148,6 +148,77 @@ if [ "$action" = execute ]; then
   fi
   pg_execute_cleanup
 fi
+
+pg_category_file_count() {
+  # Count one file category across the fleet; prints files<TAB>bytes or fails.
+  local site rc values n b sum_n=0 sum_b=0
+  for site in "${WP_SITES[@]}"; do
+    rc=0; : > "$file_report"
+    php "$PRESSGARDEN_DIR/lib/cleanup.php" report "$PRESSGARDEN_STATE_DIR" "$site" "$days" "$@" v1 "$sites_json" "${cat_metadata[@]}" > "$file_report" 2> "$errors" || rc=$?
+    [ "$rc" -le 1 ] && [ ! -s "$errors" ] || return 1
+    values=$(php "$PRESSGARDEN_DIR/lib/cleanup-summary.php" files "$file_report" 2>/dev/null) || return 1
+    IFS=$'\t' read -r n b _ <<< "$values"; sum_n=$((sum_n+n)); sum_b=$((sum_b+b))
+  done
+  printf '%s\t%s\n' "$sum_n" "$sum_b"
+}
+
+pg_ask_clean_now() {
+  # Terminal-only, default No. A yes runs the category's own guarded execute
+  # path, which repeats its exact preview, backup, confirmation and verification.
+  local answer=''
+  { exec 9<>/dev/tty; } 2>/dev/null || return 1
+  printf '\n  %s\n  Clean now? [y/N]: ' "$1" >&9
+  IFS= read -r answer <&9 || answer=''
+  exec 9>&- 9<&-
+  case "$answer" in y|Y|yes|YES) return 0 ;; esac
+  printf '  Skipped; %s left unchanged.\n' "$2"
+  return 1
+}
+
+pg_offer_category_cleanup() {
+  [ -t 0 ] && [ "${PRESSGARDEN_INTERACTIVE:-1}" != 0 ] || return 0
+  [ "$action" = preview ] && [ "$ready" -gt 0 ] || return 0
+  if [ "$failed" -gt 0 ] || [ "$reviews" -gt 0 ]; then
+    printf '\n  No cleanup offered: resolve incomplete or retained review items first.\n'
+    return 0
+  fi
+  php "$PRESSGARDEN_DIR/lib/ops-safety.php" scope "$PRESSGARDEN_STATE_DIR" "${WP_SITES[@]}" || return 0
+  local rc counts n b label flag cleaned=0
+  if [ "$database" = 1 ] && { [ "$total_expired" -gt 0 ] || [ "$total_revisions" -gt 0 ]; } && command -v wp >/dev/null 2>&1; then
+    label="Expired database transients: $total_expired"
+    [ "$revisions" = 0 ] || label="$label · old revisions: $total_revisions"
+    if pg_ask_clean_now "$label (private SQL backup first)." 'database rows'; then
+      pg_heading 'Database cleanup · private SQL backup and confirmation'
+      rc=0; bash "$PRESSGARDEN_DIR/checks/database.sh" cleanup --execute "${db_options[@]}" || rc=$?
+      [ "$rc" -eq 0 ] || { printf '\nINCOMPLETE: database cleanup did not complete; no further categories were offered.\n' >&2; exit "$rc"; }
+      cleaned=1
+    fi
+  fi
+  if [ "$has_files" -gt 0 ] && [ "$total_files" -gt 0 ]; then
+    for flag in metadata logs development; do
+      case "$flag" in
+        metadata) [ "$metadata" = 1 ] || continue; label='Disposable files'; cat_metadata=(); counts=$(pg_category_file_count 0 0) || continue; flag_args=();;
+        logs) [ "$logs" = 1 ] || continue; label='Old rotated logs'; cat_metadata=(no-metadata); counts=$(pg_category_file_count 1 0) || continue; flag_args=(--logs --no-metadata);;
+        development) [ "$development" = 1 ] || continue; label='Generated development caches'; cat_metadata=(no-metadata); counts=$(pg_category_file_count 0 1) || continue; flag_args=(--development --no-metadata);;
+      esac
+      IFS=$'\t' read -r n b <<< "$counts"
+      [ "$n" -gt 0 ] || continue
+      if pg_ask_clean_now "$label: $n files / $(human_bytes "$b") (private backup first)." "$(printf '%s' "$label" | tr '[:upper:]' '[:lower:]')"; then
+        pg_heading "$label · exact candidate preview, backup and confirmation"
+        rc=0; bash "$PRESSGARDEN_DIR/checks/cleanup.sh" execute "--older-than=$days" "${flag_args[@]}" || rc=$?
+        [ "$rc" -eq 0 ] || { printf '\nCleanup stopped. Review the category results above.\n' >&2; exit "$rc"; }
+        cleaned=1
+      fi
+    done
+  fi
+  if [ "$cleaned" = 1 ]; then
+    printf '\n'; pg_badge COMPLETE; printf ' Approved cleanup categories completed. Recovery paths are listed above.\n'
+    exit 0
+  fi
+}
+cat_metadata=(); flag_args=()
+pg_offer_category_cleanup
+
 printf '\n%s%sPREVIEW:%s no website files or database rows changed.\n' "$B" "$C" "$X"
 if [ "$failed" -gt 0 ]; then printf 'Resolve incomplete categories before execution; totals cover only verified previews.\n'
 elif [ "$reviews" -gt 0 ]; then printf 'Review preserved items with --verbose before executing file cleanup.\n'
