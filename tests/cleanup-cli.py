@@ -79,6 +79,25 @@ class CleanupCLI(unittest.TestCase):
         return subprocess.run(['bash', str(ROOT / 'pressgarden'), *args], env=self.env,
                               text=True, capture_output=True, timeout=30)
 
+    def tty_cli(self, answers, *args):
+        env = dict(self.env, PRESSGARDEN_INTERACTIVE='1')
+        cmd = shlex.join(['bash', str(ROOT / 'pressgarden'), *args])
+        return subprocess.run(['script', '-qec', cmd, '/dev/null'], env=env, input=answers,
+                              text=True, capture_output=True, timeout=30)
+
+    @unittest.skipUnless(shutil.which('script'), 'script(1) pty helper unavailable')
+    def test_terminal_preview_asks_per_category_and_defaults_to_no(self):
+        r = self.tty_cli('\n', 'cleanup', '-db', 'example.test')
+        self.assertEqual(r.stdout.count('Clean now?'), 1, r.stdout)
+        self.assertIn('Expired database transients: 7', r.stdout)
+        self.assertFalse(self.mutation.exists())
+        r = self.tty_cli('y\ny\n', 'cleanup', '-db', 'example.test')
+        self.assertTrue(self.mutation.exists(), r.stdout)
+        self.assertIn('COMPLETE', r.stdout)
+        self.assertTrue(list((self.base / 'state').rglob('*.sql*')), r.stdout)
+        r = self.cli('cleanup', '-db', 'example.test')
+        self.assertNotIn('Clean now?', r.stdout + r.stderr)
+
     def call_rows(self):
         return [json.loads(line) for line in self.calls.read_text().splitlines()] if self.calls.exists() else []
 

@@ -127,6 +127,8 @@ Selectors combine; omitted selectors mean all routine categories. Database
 options require -db when filters are supplied. Revision deletion, table
 optimization, cache purges and deletion of active logs are never implicit.
 Missing providers or failed scans show INCOMPLETE, with exit 2.
+In a terminal, a preview asks "Clean now? [y/N]" per category with candidates;
+the default is No, and yes uses that category's backup and confirmation.
 EOF
     return 0
   fi

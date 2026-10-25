@@ -21,3 +21,8 @@ This is PressGarden, an independent Bash/PHP application. Runtime changes, clien
 production credentials and deployment infrastructure are outside this setup.
 
 Read [the 2026-10-11 build/deployment decision](DEPLOYMENT-DECISION.md) before any build/release planning.
+
+## Active: claude/project-thread-kwdhal — cleanup per-category prompt
+
+Claude owns `checks/cleanup-all.sh` terminal `Clean now? [y/N]` prompts and
+`tests/cleanup-prompt.sh`. Remove this entry when the PR merges.

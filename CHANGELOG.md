@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- In a terminal, `cleanup` preview now asks `Clean now? [y/N]` after the
+  preview for each selected category with candidates. Default No; yes runs that
+  category's existing backup, confirmation and verification path. Unattended,
+  piped, `status`, incomplete and review previews never prompt.
+
 - Add `backups prune --older-than=DAYS [--apply]` for PressGarden's own private
   backups. Preview by default; only completed file-cleanup backups and
   checksum-verified database dumps are eligible; the newest backup per site and

@@ -143,6 +143,14 @@ LiteSpeed database counters. `cleanup` is a preview: it does not change website
 files or database rows, although private toolkit state/discovery caches may be
 written. Database previews bootstrap trusted WordPress code.
 
+In a terminal, the preview then asks `Clean now? [y/N]` once for each selected
+category that has candidates (database, disposable files, rotated logs,
+development caches). The default is No. A yes runs only that category's normal
+execute path, with its private backup, exact candidate list, confirmation and
+verification. No prompt appears when input is not a terminal, under
+`PRESSGARDEN_INTERACTIVE=0`, for `cleanup status`, or while any site is
+`INCOMPLETE` or has `REVIEW` items.
+
 If WP-CLI is unavailable and you want to inspect only files, select those
 categories explicitly:
 

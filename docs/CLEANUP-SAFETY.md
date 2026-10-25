@@ -16,7 +16,11 @@ No sibling dependency or runtime AI is introduced.
 ```
 
 Preview does not delete or create recovery copies. Toolkit-owned state/discovery
-caches may still be written. Execution shows the canonical site path and actual
+caches may still be written. In a terminal only, a clean preview then asks
+`Clean now? [y/N]` per category with candidates (default No); a yes runs that
+category's own execute path below, including its backup and per-site
+confirmation. Piped input, `PRESSGARDEN_INTERACTIVE=0`, `status`, and previews
+with incomplete or review items never prompt. Execution shows the canonical site path and actual
 candidate list before asking for confirmation on each site. The same in-memory
 candidate snapshots are checked after approval; execution does not silently add
 new candidates. `PRESSGARDEN_INTERACTIVE=0` remains deliberate authorization for
